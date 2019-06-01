@@ -67,7 +67,7 @@ IDWriteFactory *pIDWriteFactory = nullptr;
 ID2D1Factory *pD2DFactory = nullptr;
 IDWriteRenderingParams *defaultRenderingParams = nullptr;
 IDWriteRenderingParams *customClearTypeRenderingParams = nullptr;
-D2D1_DRAW_TEXT_OPTIONS d2dDrawTextOptions = D2D1_DRAW_TEXT_OPTIONS_NONE;
+D2D1_DRAW_TEXT_OPTIONS d2dDrawTextOptions = D2D1_DRAW_TEXT_OPTIONS_NONE|D2D1_DRAW_TEXT_OPTIONS_ENABLE_COLOR_FONT;
 
 static HMODULE hDLLD2D {};
 static HMODULE hDLLDWrite {};
