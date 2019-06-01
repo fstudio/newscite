@@ -44,7 +44,7 @@ void SCI_METHOD LexerBase::Release() {
 }
 
 int SCI_METHOD LexerBase::Version() const {
-	return lvMetaData;
+	return lvRelease4;
 }
 
 const char * SCI_METHOD LexerBase::PropertyNames() {

@@ -1,7 +1,7 @@
 # Make file for Scintilla on Windows
 # Copyright 1998-2010 by Neil Hodgson <neilh@scintilla.org>
 # The License.txt file describes the conditions under which this software may be distributed.
-# This makefile assumes the MinGW32 version of GCC 4.8+ is used and changes will
+# This makefile assumes the Mingw-w64 version of GCC 7.1+ is used and changes will
 # be needed to use other compilers.
 
 .SUFFIXES: .cxx
@@ -23,8 +23,9 @@ else
 LDMINGW = -Wl,--enable-runtime-pseudo-reloc-v2 -Wl,--add-stdcall-alias
 LIBSMINGW = -lstdc++
 STRIPOPTION = -s
-CXXSTD = gnu++0x
 endif
+
+CXXSTD = c++17
 
 ifeq ($(OS),Windows_NT)
 DEL = $(if $(wildcard $(dir $(SHELL))rm.exe), $(dir $(SHELL))rm.exe -f, del /q)
@@ -36,7 +37,6 @@ WINDRES ?= windres
 
 vpath %.h ../src ../include ../lexlib
 vpath %.cxx ../src ../lexlib ../lexers
-vpath %.c ../lua/src
 
 LDFLAGS=-shared -static -mwindows $(LDMINGW)
 LIBS=-lgdi32 -luser32 -limm32 -lole32 -luuid -loleaut32 -lmsimg32 $(LIBSMINGW)
@@ -61,21 +61,8 @@ all:	$(COMPONENT) $(LEXCOMPONENT) $(LIBSCI)
 clean:
 	$(DEL) *.exe *.o *.a *.obj *.dll *.res *.map *.plist
 
-ifdef LPEG_LEXER
-CXXFLAGS+=-DLPEG_LEXER -I ../lua/src
-LUAOBJS:=lapi.o lcode.o lctype.o ldebug.o ldo.o ldump.o lfunc.o lgc.o linit.o \
-         llex.o lmem.o lobject.o lopcodes.o lparser.o lstate.o lstring.o \
-         ltable.o ltm.o lundump.o lvm.o lzio.o \
-         lauxlib.o lbaselib.o lbitlib.o lcorolib.o ldblib.o liolib.o \
-         lmathlib.o loadlib.o loslib.o lstrlib.o ltablib.o lutf8lib.o \
-         lpcap.o lpcode.o lpprint.o lptree.o lpvm.o
-endif
-
 .cxx.o:
 	$(CXX) $(CXXFLAGS) $(REFLAGS) -c $<
-
-.c.o:
-	$(CC) $(CFLAGS) -c $<
 
 analyze:
 	$(CXX) --analyze $(CXXFLAGS) *.cxx ../src/*.cxx ../lexlib/*.cxx ../lexers/*.cxx
@@ -140,7 +127,6 @@ SCILEXOBJS=\
 	$(BASEOBJS) \
 	$(LEXLIBOBJS) \
 	$(LEXOBJS) \
-	$(LUAOBJS) \
 	ScintillaBaseL.o
 
 $(COMPONENT): $(SOBJS) Scintilla.def

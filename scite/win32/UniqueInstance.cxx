@@ -15,9 +15,9 @@
 UniqueInstance::UniqueInstance() {
 	stw = nullptr;
 	identityMessage = ::RegisterWindowMessage(TEXT("SciTEInstanceIdentifier"));
-	mutex = 0;
+	mutex = {};
 	bAlreadyRunning = false;
-	hOtherWindow = NULL;
+	hOtherWindow = {};
 }
 
 UniqueInstance::~UniqueInstance() {
@@ -26,7 +26,7 @@ UniqueInstance::~UniqueInstance() {
 	}
 }
 
-void UniqueInstance::Init(SciTEWin *stw_) {
+void UniqueInstance::Init(SciTEWin *stw_) noexcept {
 	stw = stw_;
 }
 
@@ -51,7 +51,7 @@ bool UniqueInstance::AcceptToOpenFiles(bool bAccept) {
 		// created in a different user session because of passing
 		// NULL for the SECURITY_ATTRIBUTES on mutex creation
 		bError = (::GetLastError() == ERROR_ALREADY_EXISTS ||
-		          ::GetLastError() == ERROR_ACCESS_DENIED);
+			  ::GetLastError() == ERROR_ACCESS_DENIED);
 	} else {
 		::CloseHandle(mutex);
 	}
@@ -77,7 +77,7 @@ void UniqueInstance::ToggleOpenFilesHere() {
 		if (hOtherWindow) {
 			// Found, we indicate it to yield the acceptation of files
 			::SendMessage(hOtherWindow, identityMessage, 0,
-			              static_cast<LPARAM>(1));
+				      static_cast<LPARAM>(1));
 		}
 	}
 	stw->CheckMenus();
@@ -139,11 +139,11 @@ void UniqueInstance::CheckOtherInstance() {
 	HDESK desktop = ::GetThreadDesktop(::GetCurrentThreadId());
 	DWORD len = 0;
 	// Query the needed size for the buffer
-	const BOOL result = ::GetUserObjectInformation(desktop, UOI_NAME, NULL, 0, &len);
+	const BOOL result = ::GetUserObjectInformation(desktop, UOI_NAME, nullptr, 0, &len);
 	if (result == 0 && GetLastError() == ERROR_INSUFFICIENT_BUFFER) {
 		// WinNT / Win2000
 		std::wstring info(len, 0);	// len is actually bytes so this is twice length needed
-		::GetUserObjectInformation(desktop, UOI_NAME, &info[0], len, NULL);
+		::GetUserObjectInformation(desktop, UOI_NAME, &info[0], len, nullptr);
 		mutexName += info;
 	}
 	// Try to set the mutex. If return false, it failed, there is already another instance.
@@ -230,8 +230,8 @@ BOOL CALLBACK UniqueInstance::SearchOtherInstance(HWND hWnd, LPARAM lParam) {
 		// We use a timeout to avoid being blocked by hung processes.
 		DWORD_PTR result = 0;
 		const LRESULT found = ::SendMessageTimeout(hWnd,
-		                                     ui->identityMessage, 0, 0,
-		                                     SMTO_BLOCK | SMTO_ABORTIFHUNG, 200, &result);
+				      ui->identityMessage, 0, 0,
+				      SMTO_BLOCK | SMTO_ABORTIFHUNG, 200, &result);
 		if (found != 0 && result == static_cast<DWORD_PTR>(ui->identityMessage)) {
 			// Another Gui window found!
 			// We memorise its window handle

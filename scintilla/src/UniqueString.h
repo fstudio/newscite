@@ -29,7 +29,7 @@ class UniqueStringSet {
 private:
 	std::vector<UniqueString> strings;
 public:
-	UniqueStringSet();
+	UniqueStringSet() noexcept;
 	// UniqueStringSet objects can not be copied.
 	UniqueStringSet(const UniqueStringSet &) = delete;
 	UniqueStringSet &operator=(const UniqueStringSet &) = delete;

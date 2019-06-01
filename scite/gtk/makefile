@@ -13,7 +13,8 @@ ifdef CLANG
 SANITIZE = address
 #SANITIZE = undefined
 CXX = clang++ -fsanitize=$(SANITIZE) -Wno-deprecated-register
-CC = clang -fsanitize=$(SANITIZE) -Wno-empty-body
+CC = clang -fsanitize=$(SANITIZE)
+CCWARNINGS = -Wno-empty-body -Wno-string-plus-int
 else
 MISLEADING=-Wno-misleading-indentation
 endif
@@ -77,7 +78,7 @@ vpath %.c $(srcdir)/../lua/src
 INCLUDEDIRS=-I $(srcdir)/../../scintilla/include -I $(srcdir)/../src -I$(srcdir)/../lua/src
 
 .c.o:
-	$(CC) $(INCLUDEDIRS) $(MISLEADING) -DLUA_USE_POSIX $(LUACFLAGS) $(CXXTFLAGS) $(CFLAGS) -c $< -o $@
+	$(CC) $(INCLUDEDIRS) $(MISLEADING) -DLUA_USE_POSIX $(LUACFLAGS) $(CXXTFLAGS) $(CFLAGS) $(CCWARNINGS) -c $< -o $@
 
 else
 CXXTFLAGS+=-DNO_LUA
@@ -119,7 +120,7 @@ COMPLIB=$(srcdir)/../../scintilla/bin/scintilla.a
 # To almost make lua.vers (needs header and footer added) which is only needed after updating Lua:
 # nm -g ../bin/SciTE | grep lua | awk '{print "\t\t" $3 ";"}' >lua2.vers
 
-$(PROG): SciTEGTK.o GUIGTK.o ScintillaWindow.o Widget.o \
+$(PROG): SciTEGTK.o GUIGTK.o ScintillaCall.o ScintillaWindow.o Widget.o \
 FilePath.o EditorConfig.o SciTEBase.o FileWorker.o Cookie.o Credits.o SciTEBuffers.o SciTEIO.o StringList.o \
 ExportHTML.o ExportPDF.o ExportRTF.o ExportTEX.o ExportXML.o \
 MatchMarker.o StringHelpers.o \

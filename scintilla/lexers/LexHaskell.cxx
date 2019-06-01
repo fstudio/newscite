@@ -401,7 +401,7 @@ public:
    }
 
    int SCI_METHOD Version() const override {
-      return lvOriginal;
+      return lvRelease4;
    }
 
    const char * SCI_METHOD PropertyNames() override {
@@ -432,11 +432,11 @@ public:
       return 0;
    }
 
-   static ILexer *LexerFactoryHaskell() {
+   static ILexer4 *LexerFactoryHaskell() {
       return new LexerHaskell(false);
    }
 
-   static ILexer *LexerFactoryLiterateHaskell() {
+   static ILexer4 *LexerFactoryLiterateHaskell() {
       return new LexerHaskell(true);
    }
 };

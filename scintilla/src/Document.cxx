@@ -14,6 +14,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <forward_list>
 #include <algorithm>
@@ -78,11 +79,7 @@ void LexInterface::Colourise(Sci::Position start, Sci::Position end) {
 
 int LexInterface::LineEndTypesSupported() {
 	if (instance) {
-		const int interfaceVersion = instance->Version();
-		if (interfaceVersion >= lvSubStyles) {
-			ILexerWithSubStyles *ssinstance = static_cast<ILexerWithSubStyles *>(instance);
-			return ssinstance->LineEndTypesSupported();
-		}
+		return instance->LineEndTypesSupported();
 	}
 	return 0;
 }
@@ -101,7 +98,7 @@ void ActionDuration::AddSample(size_t numberActions, double durationOfActions) n
 	const double alpha = 0.25;
 
 	const double durationOne = durationOfActions / numberActions;
-	duration = Sci::clamp(alpha * durationOne + (1.0 - alpha) * duration,
+	duration = std::clamp(alpha * durationOne + (1.0 - alpha) * duration,
 		minDuration, maxDuration);
 }
 
@@ -135,11 +132,11 @@ Document::Document(int options) :
 
 	matchesValid = false;
 
-	perLineData[ldMarkers].reset(new LineMarkers());
-	perLineData[ldLevels].reset(new LineLevels());
-	perLineData[ldState].reset(new LineState());
-	perLineData[ldMargin].reset(new LineAnnotation());
-	perLineData[ldAnnotation].reset(new LineAnnotation());
+	perLineData[ldMarkers] = std::make_unique<LineMarkers>();
+	perLineData[ldLevels] = std::make_unique<LineLevels>();
+	perLineData[ldState] = std::make_unique<LineState>();
+	perLineData[ldMargin] = std::make_unique<LineAnnotation>();
+	perLineData[ldAnnotation] = std::make_unique<LineAnnotation>();
 
 	decorations = DecorationListCreate(IsLarge());
 
@@ -596,7 +593,7 @@ void Document::GetHighlightDelimiters(HighlightDelimiter &highlightDelimiter, Sc
 }
 
 Sci::Position Document::ClampPositionIntoDocument(Sci::Position pos) const {
-	return Sci::clamp(pos, static_cast<Sci::Position>(0), static_cast<Sci::Position>(Length()));
+	return std::clamp<Sci::Position>(pos, 0, Length());
 }
 
 bool Document::IsCrLf(Sci::Position pos) const {
@@ -1081,9 +1078,9 @@ bool Document::IsDBCSTrailByteInvalid(char ch) const noexcept {
 	return false;
 }
 
-int Document::DBCSDrawBytes(const char *text, int len) const noexcept {
-	if (len <= 1) {
-		return len;
+int Document::DBCSDrawBytes(std::string_view text) const noexcept {
+	if (text.length() <= 1) {
+		return static_cast<int>(text.length());
 	}
 	if (IsDBCSLeadByteNoExcept(text[0])) {
 		return IsDBCSTrailByteInvalid(text[1]) ? 1 : 2;
@@ -1698,14 +1695,6 @@ Sci::Position Document::ParaDown(Sci::Position pos) const {
 		return LineEnd(line-1);
 }
 
-bool Document::IsASCIIWordByte(unsigned char ch) const {
-	if (IsASCII(ch)) {
-		return charClass.GetClass(ch) == CharClassify::ccWord;
-	} else {
-		return false;
-	}
-}
-
 CharClassify::cc Document::WordCharacterClass(unsigned int ch) const {
 	if (dbcsCodePage && (!UTF8IsAscii(ch))) {
 		if (SC_CP_UTF8 == dbcsCodePage) {
@@ -2177,7 +2166,7 @@ int Document::CharacterCategoryOptimization() const noexcept {
 	return charMap.Size();
 }
 
-void SCI_METHOD Document::StartStyling(Sci_Position position, char) {
+void SCI_METHOD Document::StartStyling(Sci_Position position) {
 	endStyled = position;
 }
 
@@ -3069,7 +3058,7 @@ Sci::Position Cxx11RegexFindText(const Document *doc, Sci::Position minPos, Sci:
 
 		bool matched = false;
 		if (SC_CP_UTF8 == doc->dbcsCodePage) {
-			const std::wstring ws = WStringFromUTF8(s, strlen(s));
+			const std::wstring ws = WStringFromUTF8(s);
 			std::wregex regexp;
 			regexp.assign(ws, flagsRe);
 			matched = MatchOnLines<UTF8Iterator>(doc, regexp, resr, search);

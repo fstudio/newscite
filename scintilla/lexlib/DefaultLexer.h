@@ -13,7 +13,7 @@
 namespace Scintilla {
 
 // A simple lexer with no state
-class DefaultLexer : public ILexerWithMetaData {
+class DefaultLexer : public ILexer4 {
 	const LexicalClass *lexClasses;
 	size_t nClasses;
 public:

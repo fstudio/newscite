@@ -33,15 +33,15 @@ public:
 	}
 	bool Contains(Point pt) const noexcept {
 		return (pt.x >= left) && (pt.x <= right) &&
-			(pt.y >= top) && (pt.y <= bottom);
+		       (pt.y >= top) && (pt.y <= bottom);
 	}
 	int Width() const noexcept { return right - left; }
 	int Height() const noexcept { return bottom - top; }
 	bool operator==(const Rectangle &other) const noexcept {
 		return (left == other.left) &&
-			(top == other.top) &&
-			(right == other.right) &&
-			(bottom == other.bottom);
+		       (top == other.top) &&
+		       (right == other.right) &&
+		       (bottom == other.bottom);
 	}
 };
 
@@ -100,7 +100,7 @@ public:
 		wid = wid_;
 	}
 	bool Created() const noexcept {
-		return wid != 0;
+		return !!wid;
 	}
 	void Destroy();
 	bool HasFocus();
@@ -126,18 +126,31 @@ public:
 	void Show(Point pt, Window &w);
 };
 
+// Simplified access to high precision timing.
+// Copied from Scintilla.
 class ElapsedTime {
-	long bigBit;
-	long littleBit;
+	std::chrono::high_resolution_clock::time_point tp;
 public:
-	ElapsedTime();
-	double Duration(bool reset=false);
+	/// Capture the moment
+	ElapsedTime() noexcept : tp(std::chrono::high_resolution_clock::now()) {
+	}
+	/// Return duration as floating point seconds
+	double Duration(bool reset=false) noexcept {
+		const std::chrono::high_resolution_clock::time_point tpNow =
+			std::chrono::high_resolution_clock::now();
+		const std::chrono::duration<double> stylingDuration =
+			std::chrono::duration_cast<std::chrono::duration<double>>(tpNow - tp);
+		if (reset) {
+			tp = tpNow;
+		}
+		return stylingDuration.count();
+	}
 };
 
 class ScintillaPrimitive : public Window {
 public:
 	// Send is the basic method and can be used between threads on Win32
-	sptr_t Send(unsigned int msg, uptr_t wParam=0, sptr_t lParam=0);
+	intptr_t Send(unsigned int msg, uintptr_t wParam=0, intptr_t lParam=0);
 };
 
 bool IsDBCSLeadByte(int codePage, char ch);

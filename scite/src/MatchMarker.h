@@ -6,28 +6,27 @@
 // The License.txt file describes the conditions under which this software may be distributed.
 
 struct LineRange {
-	int lineStart;
-	int lineEnd;
-	LineRange(int lineStart_, int lineEnd_) : lineStart(lineStart_), lineEnd(lineEnd_) {}
+	Scintilla::API::Line lineStart;
+	Scintilla::API::Line lineEnd;
+	LineRange(Scintilla::API::Line lineStart_, Scintilla::API::Line lineEnd_) noexcept : lineStart(lineStart_), lineEnd(lineEnd_) {}
 };
 
-std::vector<LineRange> LinesBreak(GUI::ScintillaWindow *pSci);
+std::vector<LineRange> LinesBreak(Scintilla::API::ScintillaCall *pSci);
 
 class MatchMarker {
-	GUI::ScintillaWindow *pSci;
+	Scintilla::API::ScintillaCall *pSci;
 	std::string textMatch;
 	int styleMatch;
-	int flagsMatch;
+	Scintilla::API::FindOption flagsMatch;
 	int indicator;
 	int bookMark;
 	std::vector<LineRange> lineRanges;
 public:
-	MatchMarker();
-	~MatchMarker();
-	void StartMatch(GUI::ScintillaWindow *pSci_,
-		const std::string &textMatch_, int flagsMatch_, int styleMatch_,
-		int indicator_, int bookMark_);
-	bool Complete() const;
+	MatchMarker();	// Not noexcept as std::vector constructor throws
+	void StartMatch(Scintilla::API::ScintillaCall *pSci_,
+			const std::string &textMatch_, Scintilla::API::FindOption flagsMatch_, int styleMatch_,
+			int indicator_, int bookMark_);
+	bool Complete() const noexcept;
 	void Continue();
-	void Stop();
+	void Stop() noexcept;
 };

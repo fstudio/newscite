@@ -6,10 +6,13 @@
 // The License.txt file describes the conditions under which this software may be distributed.
 
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "Scintilla.h"
-#include "GUI.h"
+#include "ScintillaTypes.h"
+#include "ScintillaMessages.h"
+#include "ScintillaCall.h"
+
 #include "MultiplexExtension.h"
 
 MultiplexExtension::MultiplexExtension(): host(nullptr) {}
@@ -18,7 +21,7 @@ MultiplexExtension::~MultiplexExtension() {
 }
 
 bool MultiplexExtension::RegisterExtension(Extension &ext_) {
-	for (Extension *pexp : extensions)
+	for (const Extension *pexp : extensions)
 		if (pexp == &ext_)
 			return true;
 
@@ -166,7 +169,7 @@ bool MultiplexExtension::OnSavePointLeft() {
 	return false;
 }
 
-bool MultiplexExtension::OnStyle(unsigned int p, int q, int r, StyleWriter *s) {
+bool MultiplexExtension::OnStyle(Scintilla::API::Position p, Scintilla::API::Position q, int r, StyleWriter *s) {
 	for (Extension *pexp : extensions) {
 		if (pexp->OnStyle(p, q, r, s)) {
 			return true;
@@ -235,7 +238,7 @@ bool MultiplexExtension::OnKey(int keyval, int modifiers) {
 	return false;
 }
 
-bool MultiplexExtension::OnDwellStart(int pos, const char *word) {
+bool MultiplexExtension::OnDwellStart(Scintilla::API::Position pos, const char *word) {
 	for (Extension *pexp : extensions)
 		pexp->OnDwellStart(pos, word);
 	return false;

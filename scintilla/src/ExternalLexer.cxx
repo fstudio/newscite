@@ -11,6 +11,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <memory>
 
@@ -114,8 +115,7 @@ void LexerManager::Load(const char *path) {
 		if (ll->moduleName == path)
 			return;
 	}
-	LexerLibrary *lib = new LexerLibrary(path);
-	libraries.push_back(std::unique_ptr<LexerLibrary>(lib));
+	libraries.push_back(std::make_unique<LexerLibrary>(path));
 }
 
 void LexerManager::Clear() {

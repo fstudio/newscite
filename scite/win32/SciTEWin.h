@@ -12,13 +12,18 @@
 #include <stdarg.h>
 #include <sys/stat.h>
 
+#include <cstdint>
+
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <deque>
 #include <set>
 #include <map>
 #include <algorithm>
 #include <memory>
+#include <chrono>
 #include <sstream>
 #include <iomanip>
 
@@ -84,6 +89,10 @@ typedef void *HTHEME;
 #include "Scintilla.h"
 #include "ILoader.h"
 
+#include "ScintillaTypes.h"
+#include "ScintillaMessages.h"
+#include "ScintillaCall.h"
+
 #include "GUI.h"
 #include "ScintillaWindow.h"
 
@@ -122,7 +131,7 @@ class CommandWorker : public Worker {
 public:
 	SciTEWin *pSciTE;
 	int icmd;
-	int originalEnd;
+	SA::Position originalEnd;
 	int exitStatus;
 	GUI::ElapsedTime commandTime;
 	std::string output;
@@ -130,8 +139,8 @@ public:
 	bool seenOutput;
 	int outputScroll;
 
-	CommandWorker();
-	void Initialise(bool resetToStart);
+	CommandWorker() noexcept;
+	void Initialise(bool resetToStart) noexcept;
 	void Execute() override;
 };
 
@@ -155,7 +164,7 @@ struct Band {
 	int height;
 	bool expands;
 	GUI::Window win;
-	Band(bool visible_, int height_, bool expands_, GUI::Window win_) :
+	Band(bool visible_, int height_, bool expands_, GUI::Window win_) noexcept :
 		visible(visible_),
 		height(height_),
 		expands(expands_),
@@ -246,7 +255,7 @@ protected:
 	void SizeSubWindows() override;
 
 	void SetMenuItem(int menuNumber, int position, int itemID,
-	                         const GUI::gui_char *text, const GUI::gui_char *mnemonic = 0) override;
+			 const GUI::gui_char *text, const GUI::gui_char *mnemonic = 0) override;
 	void RedrawMenu() override;
 	void DestroyMenuItem(int menuNumber, int itemID) override;
 	void CheckAMenuItem(int wIDCheckItem, bool val) override;
@@ -264,7 +273,7 @@ protected:
 	void CheckCommonDialogError();
 	bool OpenDialog(const FilePath &directory, const GUI::gui_char *filesFilter) override;
 	FilePath ChooseSaveName(const FilePath &directory, const char *title,
-		const GUI::gui_char *filesFilter = nullptr, const char *ext = nullptr);
+				const GUI::gui_char *filesFilter = nullptr, const char *ext = nullptr);
 	bool SaveAsDialog() override;
 	void SaveACopy() override;
 	void SaveAsHTML() override;
@@ -318,7 +327,7 @@ protected:
 	void CopyPath() override;
 	void FullScreenToggle();
 	void Command(WPARAM wParam, LPARAM lParam);
-	HWND MainHWND();
+	HWND MainHWND() noexcept;
 
 	void UserStripShow(const char *description) override;
 	void UserStripSet(int control, const char *value) override;
@@ -372,13 +381,13 @@ public:
 	explicit SciTEWin(Extension *ext = 0);
 	~SciTEWin();
 
-	static bool DialogHandled(GUI::WindowID id, MSG *pmsg);
+	static bool DialogHandled(GUI::WindowID id, MSG *pmsg) noexcept;
 	bool ModelessHandler(MSG *pmsg);
 
 	void CreateUI();
 	/// Management of the command line parameters.
 	void Run(const GUI::gui_char *cmdLine);
-	uptr_t EventLoop();
+	uintptr_t EventLoop();
 	void OutputAppendEncodedStringSynchronised(const GUI::gui_string &s, int codePageDocument);
 	void ResetExecution();
 	void ExecuteNext();
@@ -398,30 +407,30 @@ public:
 	LRESULT KeyUp(WPARAM wParam);
 	void AddToPopUp(const char *label, int cmd=0, bool enabled=true) override;
 	LRESULT ContextMenuMessage(UINT iMessage, WPARAM wParam, LPARAM lParam);
-	void CheckForScintillaFailure(int statusFailure);
+	void CheckForScintillaFailure(SA::Status statusFailure);
 	LRESULT WndProc(UINT iMessage, WPARAM wParam, LPARAM lParam);
 
 	std::string EncodeString(const std::string &s) override;
-	std::string GetRangeInUIEncoding(GUI::ScintillaWindow &win, int selStart, int selEnd) override;
+	std::string GetRangeInUIEncoding(GUI::ScintillaWindow &win, SA::Range range) override;
 
 	HACCEL GetAcceleratorTable() noexcept {
 		return hAccTable;
 	}
 
-	uptr_t GetInstance() override;
+	uintptr_t GetInstance() override;
 	static void Register(HINSTANCE hInstance_);
 	static LRESULT PASCAL TWndProc(
-	    HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);
+		HWND hWnd, UINT iMessage, WPARAM wParam, LPARAM lParam);
 
 	friend class UniqueInstance;
 };
 
-inline bool IsKeyDown(int key) {
+inline bool IsKeyDown(int key) noexcept {
 	return (::GetKeyState(key) & 0x80000000) != 0;
 }
 
-GUI::Point PointOfCursor();
-GUI::Point ClientFromScreen(HWND hWnd, GUI::Point ptScreen);
+GUI::Point PointOfCursor() noexcept;
+GUI::Point ClientFromScreen(HWND hWnd, GUI::Point ptScreen) noexcept;
 
 // Common minor conversions
 

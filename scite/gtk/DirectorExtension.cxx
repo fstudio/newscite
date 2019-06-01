@@ -40,10 +40,12 @@
 #include <errno.h>
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <set>
 #include <memory>
+#include <chrono>
 
 #include <fcntl.h>
 #include <unistd.h>
@@ -53,6 +55,11 @@
 #include <gtk/gtk.h>
 
 #include "ILexer.h"
+
+#include "ScintillaTypes.h"
+#include "ScintillaMessages.h"
+#include "ScintillaCall.h"
+
 #include "Scintilla.h"
 
 #include "GUI.h"
@@ -324,7 +331,7 @@ bool DirectorExtension::OnSavePointLeft() {
 	return false;
 }
 
-bool DirectorExtension::OnStyle(unsigned int, int, int, StyleWriter *) {
+bool DirectorExtension::OnStyle(SA::Position, SA::Position, int, StyleWriter *) {
 	return false;
 }
 

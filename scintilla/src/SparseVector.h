@@ -23,8 +23,8 @@ private:
 	}
 public:
 	SparseVector() : empty() {
-		starts = std::unique_ptr<Partitioning<Sci::Position>>(new Partitioning<Sci::Position>(8));
-		values = std::unique_ptr<SplitVector<T>>(new SplitVector<T>());
+		starts = std::make_unique<Partitioning<Sci::Position>>(8);
+		values = std::make_unique<SplitVector<T>>();
 		values->InsertEmpty(0, 2);
 	}
 	// Deleted so SparseVector objects can not be copied.

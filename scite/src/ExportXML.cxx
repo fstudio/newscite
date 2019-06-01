@@ -7,22 +7,27 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <ctime>
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <set>
 #include <memory>
+#include <chrono>
 #include <sstream>
 
 #include <fcntl.h>
 #include <sys/stat.h>
 
 #include "ILexer.h"
-#include "Scintilla.h"
+
+#include "ScintillaTypes.h"
+#include "ScintillaCall.h"
 
 #include "GUI.h"
 #include "ScintillaWindow.h"
@@ -75,14 +80,14 @@ void SciTEBase::SaveToXML(const FilePath &saveName) {
 	// but will eventually use utf-8 (once i know how to get them out).
 
 	RemoveFindMarks();
-	wEditor.Call(SCI_COLOURISE, 0, -1);
+	wEditor.ColouriseAll();
 
 	int tabSize = props.GetInt("tabsize");
 	if (tabSize == 0) {
 		tabSize = 4;
 	}
 
-	const int lengthDoc = LengthDocument();
+	const SA::Position lengthDoc = LengthDocument();
 
 	TextReader acc(wEditor);
 
@@ -94,11 +99,11 @@ void SciTEBase::SaveToXML(const FilePath &saveName) {
 		const bool collapseSpaces = (props.GetInt("export.xml.collapse.spaces", 1) == 1);
 		const bool collapseLines  = (props.GetInt("export.xml.collapse.lines", 1) == 1);
 
-		fprintf(fp, "<?xml version='1.0' encoding='%s'?>\n", (codePage == SC_CP_UTF8) ? "utf-8" : "ascii");
+		fprintf(fp, "<?xml version='1.0' encoding='%s'?>\n", (codePage == SA::CpUtf8) ? "utf-8" : "ascii");
 
 		fputs("<document xmlns='http://www.scintilla.org/scite.rng'", fp);
 		fprintf(fp, " filename='%s'",
-		        filePath.Name().AsUTF8().c_str());
+			filePath.Name().AsUTF8().c_str());
 		fprintf(fp, " type='%s'", "unknown");
 		fprintf(fp, " version='%s'", "1.0");
 		fputs(">\n", fp);
@@ -108,7 +113,7 @@ void SciTEBase::SaveToXML(const FilePath &saveName) {
 		fputs("<text>\n", fp);
 
 		int styleCurrent = -1; // acc.StyleAt(0);
-		int lineNumber = 1;
+		SA::Line lineNumber = 1;
 		int lineIndex = 0;
 		bool styleDone = false;
 		bool lineDone = false;
@@ -117,7 +122,7 @@ void SciTEBase::SaveToXML(const FilePath &saveName) {
 		int spaceLen = 0;
 		int emptyLines = 0;
 
-		for (int i = 0; i < lengthDoc; i++) {
+		for (SA::Position i = 0; i < lengthDoc; i++) {
 			const char ch = acc[i];
 			const int style = acc.StyleAt(i);
 			if (style != styleCurrent) {
@@ -147,7 +152,7 @@ void SciTEBase::SaveToXML(const FilePath &saveName) {
 				} else if (collapseLines) {
 					emptyLines++;
 				} else {
-					fprintf(fp, "<line n='%d'/>\n", lineNumber);
+					fprintf(fp, "<line n='%s'/>\n", std::to_string(lineNumber).c_str());
 				}
 				charDone = false;
 				lineNumber++;
@@ -158,7 +163,7 @@ void SciTEBase::SaveToXML(const FilePath &saveName) {
 				}
 				emptyLines = 0;
 				if (! lineDone) {
-					fprintf(fp, "<line n='%d'>", lineNumber);
+					fprintf(fp, "<line n='%s'>", std::to_string(lineNumber).c_str());
 					lineDone = true;
 				}
 				if (styleNew >= 0) {

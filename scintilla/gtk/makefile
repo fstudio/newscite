@@ -82,17 +82,7 @@ else
 CTFLAGS=-DNDEBUG -Os $(CXXBASEFLAGS) $(THREADFLAGS)
 endif
 
-CXXTFLAGS:=--std=gnu++0x $(CTFLAGS) $(REFLAGS)
-ifdef LPEG_LEXER
-CXXTFLAGS+=-DLPEG_LEXER -I ../src/lua
-LUA_CFLAGS:=-std=c99 -pedantic -Wall -I ../src/lua -DLUA_USE_POSIX -DLUA_USE_DLOPEN
-LUAOBJS:=lapi.o lcode.o lctype.o ldebug.o ldo.o ldump.o lfunc.o lgc.o linit.o \
-         llex.o lmem.o lobject.o lopcodes.o lparser.o lstate.o lstring.o \
-         ltable.o ltm.o lundump.o lvm.o lzio.o \
-         lauxlib.o lbaselib.o lbitlib.o lcorolib.o ldblib.o liolib.o \
-         lmathlib.o loadlib.o loslib.o lstrlib.o ltablib.o lutf8lib.o \
-         lpcap.o lpcode.o lpprint.o lptree.o lpvm.o
-endif
+CXXTFLAGS:=--std=gnu++17 $(CTFLAGS) $(REFLAGS)
 
 CONFIGFLAGS:=$(shell pkg-config --cflags $(GTKVERSION))
 MARSHALLER=scintilla-marshal.o
@@ -104,10 +94,8 @@ clean:
 
 .cxx.o:
 	$(CXX) $(CONFIGFLAGS) $(CXXTFLAGS) $(CXXFLAGS) -c $<
-$(MARSHALLER): scintilla-marshal.c
+.c.o:
 	$(CC) $(CONFIGFLAGS) $(CTFLAGS) $(CFLAGS) -w -c $<
-$(LUAOBJS): %.o: ../lua/src/%.c
-	$(CC) $(LUA_CFLAGS) $(CFLAGS) -c $<
 
 GLIB_GENMARSHAL = glib-genmarshal
 GLIB_GENMARSHAL_FLAGS = --prefix=scintilla_marshal
@@ -131,7 +119,7 @@ $(COMPLIB): Accessor.o CharacterSet.o DefaultLexer.o LexerBase.o LexerModule.o L
 	PropSetSimple.o PlatGTK.o \
 	KeyMap.o LineMarker.o PositionCache.o ScintillaGTK.o ScintillaGTKAccessible.o CellBuffer.o CharacterCategory.o ViewStyle.o \
 	RESearch.o RunStyles.o Selection.o Style.o Indicator.o AutoComplete.o UniConversion.o UniqueString.o XPM.o \
-	$(MARSHALLER) $(LEXOBJS) $(LUAOBJS)
+	$(MARSHALLER) $(LEXOBJS)
 	$(AR) $(ARFLAGS) $@ $^
 	$(RANLIB) $@
 

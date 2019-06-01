@@ -47,8 +47,8 @@ Utf8_16_Read::~Utf8_16_Read() {
 	}
 }
 
-size_t Utf8_16_Read::convert(char* buf, size_t len) {
-	m_pBuf = reinterpret_cast<ubyte*>(buf);
+size_t Utf8_16_Read::convert(char *buf, size_t len) {
+	m_pBuf = reinterpret_cast<ubyte *>(buf);
 	m_nLen = len;
 
 	int nSkip = 0;
@@ -79,7 +79,7 @@ size_t Utf8_16_Read::convert(char* buf, size_t len) {
 		m_nBufSize = newSize;
 	}
 
-	ubyte* pCur = m_pNewBuf;
+	ubyte *pCur = m_pNewBuf;
 
 	ubyte endSurrogate[2] = { 0, 0 };
 	ubyte *pbufPrependSurrogate = nullptr;
@@ -89,8 +89,7 @@ size_t Utf8_16_Read::convert(char* buf, size_t len) {
 		if (m_pBuf)
 			memcpy(pbufPrependSurrogate + 2, m_pBuf + nSkip, len - nSkip);
 		m_Iter16.set(pbufPrependSurrogate, len - nSkip + 2, m_eEncoding, endSurrogate);
-	}
-	else {
+	} else {
 		if (!m_pBuf)
 			return 0;
 		m_Iter16.set(m_pBuf + nSkip, len - nSkip, m_eEncoding, endSurrogate);
@@ -108,7 +107,7 @@ size_t Utf8_16_Read::convert(char* buf, size_t len) {
 	return pCur - m_pNewBuf;
 }
 
-int Utf8_16_Read::determineEncoding() {
+int Utf8_16_Read::determineEncoding() noexcept {
 	m_eEncoding = eUnknown;
 
 	int nRet = 0;
@@ -145,18 +144,18 @@ Utf8_16_Write::~Utf8_16_Write() {
 	}
 }
 
-void Utf8_16_Write::setfile(FILE *pFile) {
+void Utf8_16_Write::setfile(FILE *pFile) noexcept {
 	m_pFile = pFile;
 
 	m_bFirstWrite = true;
 }
 
 // Swap the two low order bytes of an integer value
-static int swapped(int v) {
+static int swapped(int v) noexcept {
 	return ((v & 0xFF) << 8) + (v >> 8);
 }
 
-size_t Utf8_16_Write::fwrite(const void* p, size_t _size) {
+size_t Utf8_16_Write::fwrite(const void *p, size_t _size) {
 	if (!m_pFile) {
 		return 0; // fail
 	}
@@ -189,9 +188,9 @@ size_t Utf8_16_Write::fwrite(const void* p, size_t _size) {
 	}
 
 	Utf8_Iter iter8;
-	iter8.set(static_cast<const ubyte*>(p), _size, m_eEncoding);
+	iter8.set(static_cast<const ubyte *>(p), _size, m_eEncoding);
 
-	utf16* pCur = m_pBuf;
+	utf16 *pCur = m_pBuf;
 
 	for (; iter8; ++iter8) {
 		if (iter8.canGet()) {
@@ -200,25 +199,25 @@ size_t Utf8_16_Write::fwrite(const void* p, size_t _size) {
 				codePoint -= SURROGATE_FIRST_VALUE;
 				const int lead = (codePoint >> 10) + SURROGATE_LEAD_FIRST;
 				*pCur++ = static_cast<utf16>((m_eEncoding == eUtf16BigEndian) ?
-					swapped(lead) : lead);
+							     swapped(lead) : lead);
 				const int trail = (codePoint & 0x3ff) + SURROGATE_TRAIL_FIRST;
 				*pCur++ = static_cast<utf16>((m_eEncoding == eUtf16BigEndian) ?
-					swapped(trail) : trail);
+							     swapped(trail) : trail);
 			} else {
 				*pCur++ = static_cast<utf16>((m_eEncoding == eUtf16BigEndian) ?
-					swapped(codePoint) : codePoint);
+							     swapped(codePoint) : codePoint);
 			}
 		}
 	}
 
 	const size_t ret = ::fwrite(m_pBuf,
-		reinterpret_cast<const char*>(pCur) - reinterpret_cast<const char*>(m_pBuf),
-		1, m_pFile);
+				    reinterpret_cast<const char *>(pCur) - reinterpret_cast<const char *>(m_pBuf),
+				    1, m_pFile);
 
 	return ret;
 }
 
-int Utf8_16_Write::fclose() {
+int Utf8_16_Write::fclose() noexcept {
 	delete [] m_pBuf;
 	m_pBuf = nullptr;
 
@@ -228,16 +227,16 @@ int Utf8_16_Write::fclose() {
 	return ret;
 }
 
-void Utf8_16_Write::setEncoding(Utf8_16::encodingType eType) {
+void Utf8_16_Write::setEncoding(Utf8_16::encodingType eType) noexcept {
 	m_eEncoding = eType;
 }
 
 //=================================================================
-Utf8_Iter::Utf8_Iter() {
+Utf8_Iter::Utf8_Iter() noexcept {
 	reset();
 }
 
-void Utf8_Iter::reset() {
+void Utf8_Iter::reset() noexcept {
 	m_pBuf = nullptr;
 	m_pRead = nullptr;
 	m_pEnd = nullptr;
@@ -247,7 +246,7 @@ void Utf8_Iter::reset() {
 }
 
 void Utf8_Iter::set
-	(const ubyte* pBuf, size_t nLen, encodingType eEncoding) {
+(const ubyte *pBuf, size_t nLen, encodingType eEncoding) {
 	m_pBuf = pBuf;
 	m_pRead = pBuf;
 	m_pEnd = pBuf + nLen;
@@ -256,7 +255,7 @@ void Utf8_Iter::set
 	// Note: m_eState, m_nCur not reset
 }
 // Go to the next byte.
-void Utf8_Iter::operator++() {
+void Utf8_Iter::operator++() noexcept {
 	switch (m_eState) {
 	case eStart:
 		if ((0xF0 & *m_pRead) == 0xF0) {
@@ -289,16 +288,16 @@ void Utf8_Iter::operator++() {
 	++m_pRead;
 }
 
-void Utf8_Iter::toStart() {
+void Utf8_Iter::toStart() noexcept {
 	m_eState = eStart;
 }
 
 //==================================================
-Utf16_Iter::Utf16_Iter() {
+Utf16_Iter::Utf16_Iter() noexcept {
 	reset();
 }
 
-void Utf16_Iter::reset() {
+void Utf16_Iter::reset() noexcept {
 	m_pBuf = nullptr;
 	m_pRead = nullptr;
 	m_pEnd = nullptr;
@@ -309,7 +308,7 @@ void Utf16_Iter::reset() {
 }
 
 void Utf16_Iter::set
-	(const ubyte* pBuf, size_t nLen, encodingType eEncoding, ubyte *endSurrogate) {
+(const ubyte *pBuf, size_t nLen, encodingType eEncoding, ubyte *endSurrogate) noexcept {
 	m_pBuf = pBuf;
 	m_pRead = pBuf;
 	m_pEnd = pBuf + nLen;
@@ -330,7 +329,7 @@ void Utf16_Iter::set
 // Goes to the next byte.
 // Not the next symbol which you might expect.
 // This way we can continue from a partial buffer that doesn't align
-void Utf16_Iter::operator++() {
+void Utf16_Iter::operator++() noexcept {
 	switch (m_eState) {
 	case eStart:
 		if (m_pRead >= m_pEnd) {
@@ -355,8 +354,7 @@ void Utf16_Iter::operator++() {
 				if (m_eEncoding == eUtf16LittleEndian) {
 					trail = *m_pRead++;
 					trail |= static_cast<utf16>(*m_pRead << 8);
-				}
-				else {
+				} else {
 					trail = static_cast<utf16>(*m_pRead++ << 8);
 					trail |= *m_pRead;
 				}
@@ -394,7 +392,7 @@ void Utf16_Iter::operator++() {
 	}
 }
 
-Utf8_16::utf16 Utf16_Iter::read(const ubyte* pRead) const {
+Utf8_16::utf16 Utf16_Iter::read(const ubyte *pRead) const noexcept {
 	if (m_eEncoding == eUtf16LittleEndian) {
 		return pRead[0] | static_cast<utf16>(pRead[1] << 8);
 	} else {

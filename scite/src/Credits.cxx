@@ -7,21 +7,26 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <ctime>
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <set>
 #include <memory>
+#include <chrono>
 
 #if defined(GTK)
 #include <gtk/gtk.h>
 #endif
 
 #include "ILexer.h"
-#include "Scintilla.h"
+
+#include "ScintillaTypes.h"
+#include "ScintillaCall.h"
 
 #include "GUI.h"
 #include "ScintillaWindow.h"
@@ -457,12 +462,11 @@ static void AddStyledText(GUI::ScintillaWindow &wsci, const char *s, int attr) {
 		buf[i*2] = s[i];
 		buf[i*2 + 1] = static_cast<char>(attr);
 	}
-	wsci.CallString(SCI_ADDSTYLEDTEXT,
-	        static_cast<int>(len*2), &buf[0]);
+	wsci.AddStyledText(len*2, &buf[0]);
 }
 
-static void SetAboutStyle(GUI::ScintillaWindow &wsci, int style, Colour fore) {
-	wsci.Call(SCI_STYLESETFORE, style, fore);
+static void SetAboutStyle(GUI::ScintillaWindow &wsci, int style, Scintilla::API::Colour fore) {
+	wsci.StyleSetFore(style, fore);
 }
 
 namespace {
@@ -475,11 +479,11 @@ class RandomColour {
 	int incr;
 	int modulus;
 	int randomValue;
-	int NextRandom() {
+	int NextRandom() noexcept {
 		randomValue = (mult * randomValue + incr) % modulus;
 		return randomValue;
 	}
-	void HackColour(int &n) {
+	void HackColour(int &n) noexcept {
 		n += (NextRandom() % 100) - 50;
 		if (n > 0xE7)
 			n = 0x60;
@@ -490,7 +494,7 @@ public:
 	int r;
 	int g;
 	int b;
-	RandomColour() :
+	RandomColour() noexcept :
 		mult(109),
 		incr(853),
 		modulus(4096),
@@ -499,7 +503,7 @@ public:
 		g(NextRandom() % 256),
 		b(NextRandom() % 256) {
 	}
-	void Next() {
+	void Next() noexcept {
 		HackColour(r);
 		HackColour(g);
 		HackColour(b);
@@ -510,12 +514,12 @@ public:
 
 void SciTEBase::SetAboutMessage(GUI::ScintillaWindow &wsci, const char *appTitle) {
 	if (wsci.Created()) {
-		wsci.Call(SCI_STYLERESETDEFAULT, 0, 0);
+		wsci.StyleResetDefault();
 		std::string sVersion = " ";
 		sVersion += VERSION_SCITE;
 		sVersion += " ";
 #if defined(GTK)
-		wsci.CallString(SCI_STYLESETFONT, STYLE_DEFAULT, "Serif");
+		wsci.StyleSetFont(StyleDefault, "Serif");
 		const int fontSize = 14;
 		sVersion += "compiled for GTK+ ";
 		sVersion += StdStringFromInteger(GTK_MAJOR_VERSION);
@@ -528,15 +532,15 @@ void SciTEBase::SetAboutMessage(GUI::ScintillaWindow &wsci, const char *appTitle
 #endif
 		sVersion += "\n";
 
-		wsci.Call(SCI_SETCODEPAGE, SC_CP_UTF8, 0);
+		wsci.SetCodePage(SA::CpUtf8);
 
-		wsci.Call(SCI_STYLESETSIZE, STYLE_DEFAULT, fontSize);
-		wsci.Call(SCI_STYLESETBACK, STYLE_DEFAULT, ColourRGB(0xff, 0xff, 0xff));
-		wsci.Call(SCI_STYLECLEARALL, 0, 0);
+		wsci.StyleSetSize(StyleDefault, fontSize);
+		wsci.StyleSetBack(StyleDefault, ColourRGB(0xff, 0xff, 0xff));
+		wsci.StyleClearAll();
 
 		SetAboutStyle(wsci, 0, ColourRGB(0xff, 0xff, 0xff));
-		wsci.Call(SCI_STYLESETSIZE, 0, fontSize);
-		wsci.Call(SCI_STYLESETBACK, 0, ColourRGB(0, 0, 0x80));
+		wsci.StyleSetSize(0, fontSize);
+		wsci.StyleSetBack(0, ColourRGB(0, 0, 0x80));
 		AddStyledText(wsci, appTitle, 0);
 		AddStyledText(wsci, "\n", 0);
 		SetAboutStyle(wsci, 1, ColourRGB(0, 0, 0));
@@ -547,7 +551,7 @@ void SciTEBase::SetAboutMessage(GUI::ScintillaWindow &wsci, const char *appTitle
 		AddStyledText(wsci, sVersion.c_str(), 1);
 		AddStyledText(wsci, "    " __DATE__ " " __TIME__ "\n", 1);
 		SetAboutStyle(wsci, 2, ColourRGB(0, 0, 0));
-		wsci.Call(SCI_STYLESETITALIC, 2, 1);
+		wsci.StyleSetItalic(2, true);
 		AddStyledText(wsci, GetTranslationToAbout("by").c_str(), trsSty);
 		AddStyledText(wsci, " Neil Hodgson.\n", 2);
 		SetAboutStyle(wsci, 3, ColourRGB(0, 0, 0));
@@ -561,16 +565,16 @@ void SciTEBase::SetAboutMessage(GUI::ScintillaWindow &wsci, const char *appTitle
 			AddStyledText(wsci, "\n", 5);
 		}
 		AddStyledText(wsci, GetTranslationToAbout("Contributors:").c_str(), trsSty);
-		for (unsigned int co = 0;co < std::size(contributors);co++) {
+		for (unsigned int co = 0; co < std::size(contributors); co++) {
 			const int colourIndex = 50 + (co % 78);
 			AddStyledText(wsci, "\n    ", colourIndex);
 			AddStyledText(wsci, contributors[co], colourIndex);
 		}
 		RandomColour colour;
-		for (unsigned int sty = 0;sty < 78; sty++) {
+		for (unsigned int sty = 0; sty < 78; sty++) {
 			colour.Next();
 			SetAboutStyle(wsci, sty + 50, ColourRGB(colour.r, colour.g, colour.b));
 		}
-		wsci.Call(SCI_SETREADONLY, 1, 0);
+		wsci.SetReadOnly(true);
 	}
 }

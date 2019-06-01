@@ -9,6 +9,8 @@
 #include <cmath>
 
 #include <stdexcept>
+#include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <algorithm>
@@ -18,7 +20,6 @@
 
 #include "Scintilla.h"
 
-#include "StringCopy.h"
 #include "IntegerRectangle.h"
 #include "XPM.h"
 #include "LineMarker.h"
@@ -33,11 +34,11 @@ LineMarker::LineMarker(const LineMarker &other) {
 	backSelected = other.backSelected;
 	alpha = other.alpha;
 	if (other.pxpm)
-		pxpm.reset(new XPM(*other.pxpm));
+		pxpm = std::make_unique<XPM>(*other.pxpm);
 	else
 		pxpm = nullptr;
 	if (other.image)
-		image.reset(new RGBAImage(*other.image));
+		image = std::make_unique<RGBAImage>(*other.image);
 	else
 		image = nullptr;
 	customDraw = other.customDraw;
@@ -52,11 +53,11 @@ LineMarker &LineMarker::operator=(const LineMarker &other) {
 		backSelected = other.backSelected;
 		alpha = other.alpha;
 		if (other.pxpm)
-			pxpm.reset(new XPM(*other.pxpm));
+			pxpm = std::make_unique<XPM>(*other.pxpm);
 		else
 			pxpm = nullptr;
 		if (other.image)
-			image.reset(new RGBAImage(*other.image));
+			image = std::make_unique<RGBAImage>(*other.image);
 		else
 			image = nullptr;
 		customDraw = other.customDraw;
@@ -65,17 +66,17 @@ LineMarker &LineMarker::operator=(const LineMarker &other) {
 }
 
 void LineMarker::SetXPM(const char *textForm) {
-	pxpm.reset(new XPM(textForm));
+	pxpm = std::make_unique<XPM>(textForm);
 	markType = SC_MARK_PIXMAP;
 }
 
 void LineMarker::SetXPM(const char *const *linesForm) {
-	pxpm.reset(new XPM(linesForm));
+	pxpm = std::make_unique<XPM>(linesForm);
 	markType = SC_MARK_PIXMAP;
 }
 
 void LineMarker::SetRGBAImage(Point sizeRGBAImage, float scale, const unsigned char *pixelsRGBAImage) {
-	image.reset(new RGBAImage(static_cast<int>(sizeRGBAImage.x), static_cast<int>(sizeRGBAImage.y), scale, pixelsRGBAImage));
+	image = std::make_unique<RGBAImage>(static_cast<int>(sizeRGBAImage.x), static_cast<int>(sizeRGBAImage.y), scale, pixelsRGBAImage);
 	markType = SC_MARK_RGBAIMAGE;
 }
 
@@ -185,7 +186,7 @@ void LineMarker::Draw(Surface *surface, PRectangle &rcWhole, Font &fontForCharac
     		Point::FromInts(centreX - dimOn4, centreY + dimOn2),
     		Point::FromInts(centreX + dimOn2 - dimOn4, centreY),
 		};
-		surface->Polygon(pts, ELEMENTS(pts), fore, back);
+		surface->Polygon(pts, std::size(pts), fore, back);
 
 	} else if (markType == SC_MARK_ARROWDOWN) {
 		Point pts[] = {
@@ -193,7 +194,7 @@ void LineMarker::Draw(Surface *surface, PRectangle &rcWhole, Font &fontForCharac
     		Point::FromInts(centreX + dimOn2, centreY - dimOn4),
     		Point::FromInts(centreX, centreY + dimOn2 - dimOn4),
 		};
-		surface->Polygon(pts, ELEMENTS(pts), fore, back);
+		surface->Polygon(pts, std::size(pts), fore, back);
 
 	} else if (markType == SC_MARK_PLUS) {
 		Point pts[] = {
@@ -210,7 +211,7 @@ void LineMarker::Draw(Surface *surface, PRectangle &rcWhole, Font &fontForCharac
     		Point::FromInts(centreX - 1, centreY + 1),
     		Point::FromInts(centreX - armSize, centreY + 1),
 		};
-		surface->Polygon(pts, ELEMENTS(pts), fore, back);
+		surface->Polygon(pts, std::size(pts), fore, back);
 
 	} else if (markType == SC_MARK_MINUS) {
 		Point pts[] = {
@@ -219,7 +220,7 @@ void LineMarker::Draw(Surface *surface, PRectangle &rcWhole, Font &fontForCharac
     		Point::FromInts(centreX + armSize, centreY +1),
     		Point::FromInts(centreX - armSize, centreY + 1),
 		};
-		surface->Polygon(pts, ELEMENTS(pts), fore, back);
+		surface->Polygon(pts, std::size(pts), fore, back);
 
 	} else if (markType == SC_MARK_SMALLRECT) {
 		PRectangle rcSmall;
@@ -377,14 +378,13 @@ void LineMarker::Draw(Surface *surface, PRectangle &rcWhole, Font &fontForCharac
 		DrawMinus(surface, centreX, centreY, blobSize, colourTail);
 
 	} else if (markType >= SC_MARK_CHARACTER) {
-		char character[1];
-		character[0] = static_cast<char>(markType - SC_MARK_CHARACTER);
-		const XYPOSITION width = surface->WidthText(fontForCharacter, character, 1);
+		std::string character(1, static_cast<char>(markType - SC_MARK_CHARACTER));
+		const XYPOSITION width = surface->WidthText(fontForCharacter, character);
 		PRectangle rcText = rc;
 		rcText.left += (rc.Width() - width) / 2;
 		rcText.right = rc.left + width;
 		surface->DrawTextClipped(rcText, fontForCharacter, rcText.bottom - 2,
-			character, 1, fore, back);
+			character, fore, back);
 
 	} else if (markType == SC_MARK_DOTDOTDOT) {
 		XYPOSITION right = static_cast<XYPOSITION>(centreX - 6);
@@ -415,7 +415,7 @@ void LineMarker::Draw(Surface *surface, PRectangle &rcWhole, Font &fontForCharac
 			Point::FromInts(centreX, centreY + dimOn4),
 			Point::FromInts(centreX, centreY + dimOn2),
 		};
-		surface->Polygon(pts, ELEMENTS(pts), fore, back);
+		surface->Polygon(pts, std::size(pts), fore, back);
 	} else if (markType == SC_MARK_LEFTRECT) {
 		PRectangle rcLeft = rcWhole;
 		rcLeft.right = rcLeft.left + 4;
@@ -429,7 +429,7 @@ void LineMarker::Draw(Surface *surface, PRectangle &rcWhole, Font &fontForCharac
 			Point::FromInts(ircWhole.right - 3, centreY + halfHeight),
 			Point::FromInts(ircWhole.left, centreY + halfHeight),
 		};
-		surface->Polygon(pts, ELEMENTS(pts), fore, back);
+		surface->Polygon(pts, std::size(pts), fore, back);
 	} else if (markType == SC_MARK_VERTICALBOOKMARK) {
 		const int halfWidth = minDim / 3;
 		Point pts[] = {
@@ -439,7 +439,7 @@ void LineMarker::Draw(Surface *surface, PRectangle &rcWhole, Font &fontForCharac
 			Point::FromInts(centreX, centreY + dimOn2 - halfWidth),
 			Point::FromInts(centreX - halfWidth, centreY + dimOn2),
 		};
-		surface->Polygon(pts, ELEMENTS(pts), fore, back);
+		surface->Polygon(pts, std::size(pts), fore, back);
 	} else { // SC_MARK_FULLRECT
 		surface->FillRectangle(rcWhole, back);
 	}

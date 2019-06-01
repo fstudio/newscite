@@ -8,20 +8,18 @@
 #ifndef EXTENDER_H
 #define EXTENDER_H
 
-#include "Scintilla.h"
-
 class StyleWriter;
 
-inline sptr_t SptrFromPointer(void *p) {
-	return reinterpret_cast<sptr_t>(p);
+inline intptr_t SptrFromPointer(void *p) noexcept {
+	return reinterpret_cast<intptr_t>(p);
 }
 
-inline sptr_t SptrFromString(const char *cp) {
-	return reinterpret_cast<sptr_t>(cp);
+inline intptr_t SptrFromString(const char *cp) noexcept {
+	return reinterpret_cast<intptr_t>(cp);
 }
 
-inline uptr_t UptrFromString(const char *cp) {
-	return reinterpret_cast<uptr_t>(cp);
+inline uintptr_t UptrFromString(const char *cp) noexcept {
+	return reinterpret_cast<uintptr_t>(cp);
 }
 
 class ExtensionAPI {
@@ -29,15 +27,15 @@ public:
 	virtual ~ExtensionAPI() {
 	}
 	enum Pane { paneEditor=1, paneOutput=2, paneFindOutput=3 };
-	virtual sptr_t Send(Pane p, unsigned int msg, uptr_t wParam=0, sptr_t lParam=0)=0;
-	virtual std::string Range(Pane p, int start, int end)=0;
-	virtual void Remove(Pane p, int start, int end)=0;
-	virtual void Insert(Pane p, int pos, const char *s)=0;
+	virtual intptr_t Send(Pane p, Scintilla::API::Message msg, uintptr_t wParam=0, intptr_t lParam=0)=0;
+	virtual std::string Range(Pane p, Scintilla::API::Range range)=0;
+	virtual void Remove(Pane p, Scintilla::API::Position start, Scintilla::API::Position end)=0;
+	virtual void Insert(Pane p, Scintilla::API::Position pos, const char *s)=0;
 	virtual void Trace(const char *s)=0;
 	virtual std::string Property(const char *key)=0;
 	virtual void SetProperty(const char *key, const char *val)=0;
 	virtual void UnsetProperty(const char *key)=0;
-	virtual uptr_t GetInstance()=0;
+	virtual uintptr_t GetInstance()=0;
 	virtual void ShutDown()=0;
 	virtual void Perform(const char *actions)=0;
 	virtual void DoMenuCommand(int cmdID)=0;
@@ -46,6 +44,7 @@ public:
 	virtual void UserStripSet(int control, const char *value)=0;
 	virtual void UserStripSetList(int control, const char *value)=0;
 	virtual std::string UserStripValue(int control)=0;
+	virtual Scintilla::API::ScintillaCall &PaneCaller(Pane p) noexcept =0;
 };
 
 /**
@@ -73,7 +72,7 @@ public:
 	virtual bool OnExecute(const char *) { return false; }
 	virtual bool OnSavePointReached() { return false; }
 	virtual bool OnSavePointLeft() { return false; }
-	virtual bool OnStyle(unsigned int, int, int, StyleWriter *) {
+	virtual bool OnStyle(Scintilla::API::Position, Scintilla::API::Position, int, StyleWriter *) {
 		return false;
 	}
 	virtual bool OnDoubleClick() { return false; }
@@ -85,7 +84,7 @@ public:
 	virtual bool SendProperty(const char *) { return false; }
 
 	virtual bool OnKey(int, int) { return false; }
-	virtual bool OnDwellStart(int, const char *) { return false; }
+	virtual bool OnDwellStart(Scintilla::API::Position, const char *) { return false; }
 	virtual bool OnClose(const char *) { return false; }
 	virtual bool OnUserStrip(int /* control */, int /* change */) { return false; }
 	virtual bool NeedsOnClose() { return true; }

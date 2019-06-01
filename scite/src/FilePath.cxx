@@ -15,6 +15,7 @@
 #include <string_view>
 #include <vector>
 #include <algorithm>
+#include <chrono>
 
 #include <fcntl.h>
 
@@ -41,10 +42,7 @@
 
 #endif
 
-#include "Scintilla.h"
-
 #include "GUI.h"
-#include "ScintillaWindow.h"
 
 #include "FilePath.h"
 
@@ -119,7 +117,7 @@ bool FilePath::operator<(const FilePath &other) const noexcept {
 bool FilePath::SameNameAs(const GUI::gui_char *other) const noexcept {
 #ifdef WIN32
 	return CSTR_EQUAL == CompareString(LOCALE_SYSTEM_DEFAULT, NORM_IGNORECASE,
-		fileName.c_str(), -1, other, -1);
+					   fileName.c_str(), -1, other, -1);
 #else
 	return fileName == other;
 #endif
@@ -156,7 +154,7 @@ bool FilePath::IsAbsolute() const {
 bool FilePath::IsRoot() const {
 #ifdef WIN32
 	if ((fileName[0] == pathSepChar) && (fileName[1] == pathSepChar) && (fileName.find(pathSepString, 2) == GUI::gui_string::npos))
-        return true; // UNC path like \\server
+		return true; // UNC path like \\server
 	return (fileName.length() == 3) && (fileName[1] == ':') && (fileName[2] == pathSepChar);
 #else
 	return fileName == "/";
@@ -518,10 +516,11 @@ namespace {
 
 #ifdef _WIN32
 void Lowercase(GUI::gui_string &s) {
-	const int chars = ::LCMapString(LOCALE_SYSTEM_DEFAULT, LCMAP_LOWERCASE, s.c_str(), static_cast<int>(s.size())+1, nullptr, 0);
-	std::vector<wchar_t> vc(chars);
-	::LCMapString(LOCALE_SYSTEM_DEFAULT, LCMAP_LOWERCASE, s.c_str(), static_cast<int>(s.size())+1, &vc[0], chars);
-	s = &vc[0];
+	const int sLength = static_cast<int>(s.length());
+	const int chars = ::LCMapString(LOCALE_SYSTEM_DEFAULT, LCMAP_LOWERCASE, s.c_str(), sLength, nullptr, 0);
+	GUI::gui_string vc(chars, 0);
+	::LCMapString(LOCALE_SYSTEM_DEFAULT, LCMAP_LOWERCASE, s.c_str(), sLength, vc.data(), chars);
+	s = vc;
 }
 #endif
 
@@ -586,7 +585,7 @@ bool FilePath::Matches(const GUI::gui_char *pattern) const {
  * @returns true on success, and the long path in @a longPath,
  * false on failure.
  */
-static bool MakeLongPath(const GUI::gui_char* shortPath, GUI::gui_string &longPath) {
+static bool MakeLongPath(const GUI::gui_char *shortPath, GUI::gui_string &longPath) {
 	if (!*shortPath) {
 		return false;
 	}
@@ -682,27 +681,26 @@ std::string CommandExecute(const GUI::gui_char *command, const GUI::gui_char *di
 
 	// Make child process use hPipeWrite as standard out, and make
 	// sure it does not show on screen.
-	STARTUPINFOW si = {
-			     sizeof(STARTUPINFO), nullptr, nullptr, nullptr, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, nullptr, 0, 0, 0
-			 };
+	STARTUPINFOW si = {};
+	si.cb = sizeof(STARTUPINFO);
 	si.dwFlags = STARTF_USESHOWWINDOW | STARTF_USESTDHANDLES;
 	si.wShowWindow = SW_HIDE;
 	si.hStdInput = hRead2;
 	si.hStdOutput = hPipeWrite;
 	si.hStdError = hPipeWrite;
 
-	PROCESS_INFORMATION pi = {0, 0, 0, 0};
+	PROCESS_INFORMATION pi = {};
 
 	std::vector<wchar_t> vwcCommand(command, command + wcslen(command) + 1);
 
 	const BOOL running = ::CreateProcessW(
-			  nullptr,
-			  &vwcCommand[0],
-			  nullptr, nullptr,
-			  TRUE, CREATE_NEW_PROCESS_GROUP,
-			  nullptr,
-			  (directoryForRun && directoryForRun[0]) ? directoryForRun : nullptr,
-			  &si, &pi);
+				     nullptr,
+				     &vwcCommand[0],
+				     nullptr, nullptr,
+				     TRUE, CREATE_NEW_PROCESS_GROUP,
+				     nullptr,
+				     (directoryForRun && directoryForRun[0]) ? directoryForRun : nullptr,
+				     &si, &pi);
 
 	if (running && pi.hProcess && pi.hThread) {
 		// Wait until child process exits but time out after 5 seconds.

@@ -11,9 +11,7 @@
 #include <algorithm>
 #include <iterator>
 
-#include "Scintilla.h" // for ptrdiff_t in Position.h
 #include "CharacterCategory.h"
-#include "Position.h" // for Sci::clamp
 
 namespace Scintilla {
 
@@ -3976,7 +3974,7 @@ int CharacterCategoryMap::Size() const noexcept {
 }
 
 void CharacterCategoryMap::Optimize(int countCharacters) {
-	const int characters = Sci::clamp(countCharacters, 256, maxUnicode + 1);
+	const int characters = std::clamp(countCharacters, 256, maxUnicode + 1);
 	dense.resize(characters);
 
 	int end = 0;

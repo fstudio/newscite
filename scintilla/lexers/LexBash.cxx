@@ -210,7 +210,7 @@ public:
 		delete this;
 	}
 	int SCI_METHOD Version() const override {
-		return lvMetaData;
+		return lvRelease4;
 	}
 	const char * SCI_METHOD PropertyNames() override {
 		return osBash.PropertyNames();
@@ -262,7 +262,7 @@ public:
 		return styleSubable;
 	}
 
-	static ILexer *LexerFactoryBash() {
+	static ILexer4 *LexerFactoryBash() {
 		return new LexerBash();
 	}
 };

@@ -15,12 +15,15 @@
 #include <string_view>
 #include <vector>
 #include <algorithm>
+#include <chrono>
 
-#include "Scintilla.h"
+#include "ScintillaTypes.h"
 
 #include "GUI.h"
 #include "StringHelpers.h"
 #include "StyleDefinition.h"
+
+namespace SA = Scintilla::API;
 
 namespace {
 
@@ -38,11 +41,11 @@ ViewPair ViewSplit(std::string_view view, char separator) noexcept {
 }
 
 StyleDefinition::StyleDefinition(std::string_view definition) :
-		sizeFractional(10.0), size(10), fore("#000000"), back("#FFFFFF"),
-		weight(SC_WEIGHT_NORMAL), italics(false), eolfilled(false), underlined(false),
-		caseForce(SC_CASE_MIXED),
-		visible(true), changeable(true),
-		specified(sdNone) {
+	sizeFractional(10.0), size(10), fore("#000000"), back("#FFFFFF"),
+	weight(SA::FontWeight::Normal), italics(false), eolfilled(false), underlined(false),
+	caseForce(SA::CaseVisible::Mixed),
+	visible(true), changeable(true),
+	specified(sdNone) {
 	ParseStyleDefinition(definition);
 }
 
@@ -68,18 +71,17 @@ bool StyleDefinition::ParseStyleDefinition(std::string_view definition) {
 		}
 		if (optionName == "bold") {
 			specified = static_cast<flags>(specified | sdWeight);
-			weight = SC_WEIGHT_BOLD;
+			weight = SA::FontWeight::Bold;
 		}
 		if (optionName == "notbold") {
 			specified = static_cast<flags>(specified | sdWeight);
-			weight = SC_WEIGHT_NORMAL;
+			weight = SA::FontWeight::Normal;
 		}
 		if ((optionName == "weight") && !optionValue.empty()) {
 			specified = static_cast<flags>(specified | sdWeight);
 			try {
-				weight = std::stoi(std::string(optionValue));
-			}
-			catch (std::logic_error &) {
+				weight = static_cast<SA::FontWeight>(std::stoi(std::string(optionValue)));
+			} catch (std::logic_error &) {
 				// Ignore bad values, either non-numeric or out of range numberic
 			}
 		}
@@ -119,12 +121,14 @@ bool StyleDefinition::ParseStyleDefinition(std::string_view definition) {
 		}
 		if (optionName == "case") {
 			specified = static_cast<flags>(specified | sdCaseForce);
-			caseForce = SC_CASE_MIXED;
+			caseForce = SA::CaseVisible::Mixed;
 			if (!optionValue.empty()) {
 				if (optionValue.front() == 'u')
-					caseForce = SC_CASE_UPPER;
+					caseForce = SA::CaseVisible::Upper;
 				else if (optionValue.front() == 'l')
-					caseForce = SC_CASE_LOWER;
+					caseForce = SA::CaseVisible::Lower;
+				else if (optionValue.front() == 'c')
+					caseForce = SA::CaseVisible::Camel;
 			}
 		}
 		if (optionName == "visible") {
@@ -147,20 +151,20 @@ bool StyleDefinition::ParseStyleDefinition(std::string_view definition) {
 	return true;
 }
 
-long StyleDefinition::ForeAsLong() const {
+SA::Colour StyleDefinition::Fore() const {
 	return ColourFromString(fore);
 }
 
-long StyleDefinition::BackAsLong() const {
+SA::Colour StyleDefinition::Back() const {
 	return ColourFromString(back);
 }
 
 int StyleDefinition::FractionalSize() const noexcept {
-	return static_cast<int>(sizeFractional * SC_FONT_SIZE_MULTIPLIER);
+	return static_cast<int>(sizeFractional * SA::FontSizeMultiplier);
 }
 
 bool StyleDefinition::IsBold() const noexcept {
-	return weight > SC_WEIGHT_NORMAL;
+	return weight > SA::FontWeight::Normal;
 }
 
 int IntFromHexDigit(int ch) noexcept {
@@ -179,7 +183,7 @@ int IntFromHexByte(std::string_view hexByte) noexcept {
 	return IntFromHexDigit(hexByte[0]) * 16 + IntFromHexDigit(hexByte[1]);
 }
 
-Colour ColourFromString(const std::string &s) {
+SA::Colour ColourFromString(const std::string &s) {
 	if (s.length() >= 7) {
 		const int r = IntFromHexByte(&s[1]);
 		const int g = IntFromHexByte(&s[3]);
@@ -191,7 +195,7 @@ Colour ColourFromString(const std::string &s) {
 }
 
 IndicatorDefinition::IndicatorDefinition(std::string_view definition) :
-	style(INDIC_PLAIN), colour(0), fillAlpha(30), outlineAlpha(50), under(false) {
+	style(SA::IndicatorStyle::Plain), colour(0), fillAlpha(static_cast<SA::Alpha>(30)), outlineAlpha(static_cast<SA::Alpha>(50)), under(false) {
 	ParseIndicatorDefinition(definition);
 }
 
@@ -201,31 +205,31 @@ bool IndicatorDefinition::ParseIndicatorDefinition(std::string_view definition) 
 	}
 	struct NameValue {
 		std::string_view name;
-		int value;
+		SA::IndicatorStyle value;
 	};
 	const NameValue indicStyleNames[] = {
-		{ "plain", INDIC_PLAIN },
-		{ "squiggle", INDIC_SQUIGGLE },
-		{ "tt", INDIC_TT },
-		{ "diagonal", INDIC_DIAGONAL },
-		{ "strike", INDIC_STRIKE },
-		{ "hidden", INDIC_HIDDEN },
-		{ "box", INDIC_BOX },
-		{ "roundbox", INDIC_ROUNDBOX },
-		{ "straightbox", INDIC_STRAIGHTBOX },
-		{ "dash", INDIC_DASH },
-		{ "dots", INDIC_DOTS },
-		{ "squigglelow", INDIC_SQUIGGLELOW },
-		{ "dotbox", INDIC_DOTBOX },
-		{ "squigglepixmap", INDIC_SQUIGGLEPIXMAP },
-		{ "compositionthick", INDIC_COMPOSITIONTHICK },
-		{ "compositionthin", INDIC_COMPOSITIONTHIN },
-		{ "fullbox", INDIC_FULLBOX },
-		{ "textfore", INDIC_TEXTFORE },
-		{ "point", INDIC_POINT },
-		{ "pointcharacter", INDIC_POINTCHARACTER },
-		{ "gradient", INDIC_GRADIENT },
-		{ "gradientverticalcentred", INDIC_GRADIENTCENTRE },
+		{ "plain", SA::IndicatorStyle::Plain },
+		{ "squiggle", SA::IndicatorStyle::Squiggle },
+		{ "tt", SA::IndicatorStyle::TT },
+		{ "diagonal", SA::IndicatorStyle::Diagonal },
+		{ "strike", SA::IndicatorStyle::Strike },
+		{ "hidden", SA::IndicatorStyle::Hidden },
+		{ "box", SA::IndicatorStyle::Box },
+		{ "roundbox", SA::IndicatorStyle::RoundBox },
+		{ "straightbox", SA::IndicatorStyle::StraightBox },
+		{ "dash", SA::IndicatorStyle::Dash },
+		{ "dots", SA::IndicatorStyle::Dots },
+		{ "squigglelow", SA::IndicatorStyle::SquiggleLow },
+		{ "dotbox", SA::IndicatorStyle::DotBox },
+		{ "squigglepixmap", SA::IndicatorStyle::SquigglePixmap },
+		{ "compositionthick", SA::IndicatorStyle::CompositionThick },
+		{ "compositionthin", SA::IndicatorStyle::CompositionThin },
+		{ "fullbox", SA::IndicatorStyle::FullBox },
+		{ "textfore", SA::IndicatorStyle::TextFore },
+		{ "point", SA::IndicatorStyle::Point },
+		{ "pointcharacter", SA::IndicatorStyle::PointCharacter },
+		{ "gradient", SA::IndicatorStyle::Gradient },
+		{ "gradientverticalcentred", SA::IndicatorStyle::GradientCentre },
 	};
 
 	std::string val(definition);
@@ -249,17 +253,17 @@ bool IndicatorDefinition::ParseIndicatorDefinition(std::string_view definition) 
 					}
 				}
 				if (!found) {
-					style = std::stoi(std::string(optionValue));
+					style = static_cast<SA::IndicatorStyle>(std::stoi(std::string(optionValue)));
 				}
 			}
 			if (!optionValue.empty() && ((optionName == "colour") || (optionName == "color"))) {
 				colour = ColourFromString(std::string(optionValue));
 			}
 			if (!optionValue.empty() && (optionName == "fillalpha")) {
-				fillAlpha = std::stoi(std::string(optionValue));
+				fillAlpha = static_cast<SA::Alpha>(std::stoi(std::string(optionValue)));
 			}
 			if (!optionValue.empty() && (optionName == "outlinealpha")) {
-				outlineAlpha = std::stoi(std::string(optionValue));
+				outlineAlpha = static_cast<SA::Alpha>(std::stoi(std::string(optionValue)));
 			}
 			if (optionName == "under") {
 				under = true;
@@ -267,8 +271,7 @@ bool IndicatorDefinition::ParseIndicatorDefinition(std::string_view definition) 
 			if (optionName == "notunder") {
 				under = false;
 			}
-		}
-		catch (std::logic_error &) {
+		} catch (std::logic_error &) {
 			// Ignore bad values, either non-numeric or out of range numberic
 		}
 	}

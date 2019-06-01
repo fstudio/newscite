@@ -10,18 +10,9 @@
 
 namespace GUI {
 
-struct ScintillaFailure {
-	sptr_t status;
-	explicit ScintillaFailure(sptr_t status_) : status(status_) {
-	}
-};
-
-class ScintillaWindow : public ScintillaPrimitive {
-	SciFnDirect fn;
-	sptr_t ptr;
+class ScintillaWindow : public GUI::ScintillaPrimitive, public Scintilla::API::ScintillaCall {
 public:
-	sptr_t status;
-	ScintillaWindow();
+	ScintillaWindow() noexcept;
 	~ScintillaWindow() override;
 	// Deleted so ScintillaWindow objects can not be copied.
 	ScintillaWindow(const ScintillaWindow &source) = delete;
@@ -30,17 +21,10 @@ public:
 	ScintillaWindow &operator=(ScintillaWindow &&) = delete;
 
 	void SetScintilla(GUI::WindowID wid_);
-	bool CanCall() const;
-	int Call(unsigned int msg, uptr_t wParam=0, sptr_t lParam=0);
-	sptr_t CallReturnPointer(unsigned int msg, uptr_t wParam=0, sptr_t lParam=0);
-	int CallPointer(unsigned int msg, uptr_t wParam, void *s);
-	int CallString(unsigned int msg, uptr_t wParam, const char *s);
-
-	// Common APIs made more accessible
-	int LineStart(int line);
-	int LineFromPosition(int position);
+	bool CanCall() const noexcept;
 };
 
 }
+
 
 #endif

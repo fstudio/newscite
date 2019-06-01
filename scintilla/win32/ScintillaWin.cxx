@@ -16,6 +16,7 @@
 #include <stdexcept>
 #include <new>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <algorithm>
@@ -51,7 +52,6 @@
 #ifdef SCI_LEXER
 #include "SciLexer.h"
 #endif
-#include "StringCopy.h"
 #include "CharacterCategory.h"
 #ifdef SCI_LEXER
 #include "LexerModule.h"
@@ -240,18 +240,18 @@ public:
 	}
 
 	unsigned int GetImeCaretPos() const noexcept {
-		return ImmGetCompositionStringW(hIMC, GCS_CURSORPOS, NULL, 0);
+		return ImmGetCompositionStringW(hIMC, GCS_CURSORPOS, nullptr, 0);
 	}
 
 	std::vector<BYTE> GetImeAttributes() {
-		const int attrLen = ::ImmGetCompositionStringW(hIMC, GCS_COMPATTR, NULL, 0);
+		const int attrLen = ::ImmGetCompositionStringW(hIMC, GCS_COMPATTR, nullptr, 0);
 		std::vector<BYTE> attr(attrLen, 0);
 		::ImmGetCompositionStringW(hIMC, GCS_COMPATTR, &attr[0], static_cast<DWORD>(attr.size()));
 		return attr;
 	}
 
 	std::wstring GetCompositionString(DWORD dwIndex) {
-		const LONG byteLen = ::ImmGetCompositionStringW(hIMC, dwIndex, NULL, 0);
+		const LONG byteLen = ::ImmGetCompositionStringW(hIMC, dwIndex, nullptr, 0);
 		std::wstring wcs(byteLen / 2, 0);
 		::ImmGetCompositionStringW(hIMC, dwIndex, &wcs[0], byteLen);
 		return wcs;
@@ -328,7 +328,6 @@ class ScintillaWin :
 	static int MouseModifiers(uptr_t wParam) noexcept;
 
 	Sci::Position TargetAsUTF8(char *text) const;
-	void AddCharUTF16(wchar_t const *wcs, unsigned int wclen);
 	Sci::Position EncodedFromUTF8(const char *utf8, char *encoded) const;
 	sptr_t WndPaint();
 
@@ -341,7 +340,7 @@ class ScintillaWin :
 	void SelectionToHangul();
 	void EscapeHanja();
 	void ToggleHanja();
-	void AddWString(std::wstring wcs);
+	void AddWString(std::wstring_view wsv);
 
 	UINT CodePageOfDocument() const;
 	bool ValidCodePage(int codePage) const override;
@@ -736,31 +735,49 @@ bool BoundsContains(PRectangle rcBounds, HRGN hRgnBounds, PRectangle rcCheck) no
 	return contains;
 }
 
-std::string StringEncode(const std::wstring &s, int codePage) {
-	const int cchMulti = s.length() ? ::WideCharToMultiByte(codePage, 0, s.c_str(), static_cast<int>(s.length()), NULL, 0, NULL, NULL) : 0;
+// Simplify calling WideCharToMultiByte and MultiByteToWideChar by providing default parameters and using string view.
+
+int MultiByteFromWideChar(UINT codePage, std::wstring_view wsv, LPSTR lpMultiByteStr, ptrdiff_t cbMultiByte) noexcept {
+	return ::WideCharToMultiByte(codePage, 0, wsv.data(), static_cast<int>(wsv.length()), lpMultiByteStr, static_cast<int>(cbMultiByte), nullptr, nullptr);
+}
+
+int MultiByteLenFromWideChar(UINT codePage, std::wstring_view wsv) noexcept {
+	return MultiByteFromWideChar(codePage, wsv, nullptr, 0);
+}
+
+int WideCharFromMultiByte(UINT codePage, std::string_view sv, LPWSTR lpWideCharStr, ptrdiff_t cchWideChar) noexcept {
+	return ::MultiByteToWideChar(codePage, 0, sv.data(), static_cast<int>(sv.length()), lpWideCharStr, static_cast<int>(cchWideChar));
+}
+
+int WideCharLenFromMultiByte(UINT codePage, std::string_view sv) noexcept {
+	return WideCharFromMultiByte(codePage, sv, nullptr, 0);
+}
+
+std::string StringEncode(std::wstring_view wsv, int codePage) {
+	const int cchMulti = wsv.length() ? MultiByteLenFromWideChar(codePage, wsv) : 0;
 	std::string sMulti(cchMulti, 0);
 	if (cchMulti) {
-		::WideCharToMultiByte(codePage, 0, s.c_str(), static_cast<int>(s.size()), &sMulti[0], cchMulti, NULL, NULL);
+		MultiByteFromWideChar(codePage, wsv, sMulti.data(), cchMulti);
 	}
 	return sMulti;
 }
 
-std::wstring StringDecode(const std::string &s, int codePage) {
-	const int cchWide = s.length() ? ::MultiByteToWideChar(codePage, 0, s.c_str(), static_cast<int>(s.length()), NULL, 0) : 0;
+std::wstring StringDecode(std::string_view sv, int codePage) {
+	const int cchWide = sv.length() ? WideCharLenFromMultiByte(codePage, sv) : 0;
 	std::wstring sWide(cchWide, 0);
 	if (cchWide) {
-		::MultiByteToWideChar(codePage, 0, s.c_str(), static_cast<int>(s.length()), &sWide[0], cchWide);
+		WideCharFromMultiByte(codePage, sv, sWide.data(), cchWide);
 	}
 	return sWide;
 }
 
-std::wstring StringMapCase(const std::wstring &ws, DWORD mapFlags) {
+std::wstring StringMapCase(std::wstring_view wsv, DWORD mapFlags) {
 	const int charsConverted = ::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags,
-		ws.c_str(), static_cast<int>(ws.length()), nullptr, 0);
+		wsv.data(), static_cast<int>(wsv.length()), nullptr, 0);
 	std::wstring wsConverted(charsConverted, 0);
 	if (charsConverted) {
 		::LCMapStringW(LOCALE_SYSTEM_DEFAULT, mapFlags,
-			ws.c_str(), static_cast<int>(ws.length()), &wsConverted[0], charsConverted);
+			wsv.data(), static_cast<int>(wsv.length()), wsConverted.data(), charsConverted);
 	}
 	return wsConverted;
 }
@@ -779,9 +796,9 @@ Sci::Position ScintillaWin::TargetAsUTF8(char *text) const {
 		// Need to convert
 		const std::string s = RangeText(targetStart, targetEnd);
 		const std::wstring characters = StringDecode(s, CodePageOfDocument());
-		const int utf8Len = ::WideCharToMultiByte(CP_UTF8, 0, characters.c_str(), static_cast<int>(characters.length()), NULL, 0, 0, 0);
+		const int utf8Len = MultiByteLenFromWideChar(CP_UTF8, characters);
 		if (text) {
-			::WideCharToMultiByte(CP_UTF8, 0, characters.c_str(), static_cast<int>(characters.length()), text, utf8Len, 0, 0);
+			MultiByteFromWideChar(CP_UTF8, characters, text, utf8Len);
 			text[utf8Len] = '\0';
 		}
 		return utf8Len;
@@ -800,37 +817,17 @@ Sci::Position ScintillaWin::EncodedFromUTF8(const char *utf8, char *encoded) con
 		return inputLength;
 	} else {
 		// Need to convert
-		const int charsLen = ::MultiByteToWideChar(CP_UTF8, 0, utf8, static_cast<int>(inputLength), NULL, 0);
-		std::wstring characters(charsLen, '\0');
-		::MultiByteToWideChar(CP_UTF8, 0, utf8, static_cast<int>(inputLength), &characters[0], charsLen);
+		const std::string_view utf8Input(utf8, inputLength);
+		const int charsLen = WideCharLenFromMultiByte(CP_UTF8, utf8Input);
+		std::wstring characters(charsLen, L'\0');
+		WideCharFromMultiByte(CP_UTF8, utf8Input, &characters[0], charsLen);
 
-		const int encodedLen = ::WideCharToMultiByte(CodePageOfDocument(),
-		                                       0, &characters[0], charsLen, NULL, 0, 0, 0);
+		const int encodedLen = MultiByteLenFromWideChar(CodePageOfDocument(), characters);
 		if (encoded) {
-			::WideCharToMultiByte(CodePageOfDocument(), 0, &characters[0], charsLen, encoded, encodedLen, 0, 0);
+			MultiByteFromWideChar(CodePageOfDocument(), characters, encoded, encodedLen);
 			encoded[encodedLen] = '\0';
 		}
 		return encodedLen;
-	}
-}
-
-// Add one character from a UTF-16 string, by converting to either UTF-8 or
-// the current codepage. Code is similar to HandleCompositionWindowed().
-void ScintillaWin::AddCharUTF16(wchar_t const *wcs, unsigned int wclen) {
-	if (IsUnicodeMode()) {
-		size_t len = UTF8Length(wcs, wclen);
-		char utfval[maxLenInputIME * 3];
-		UTF8FromUTF16(wcs, wclen, utfval, len);
-		utfval[len] = '\0';
-		AddCharUTF(utfval, static_cast<unsigned int>(len));
-	} else {
-		const UINT cpDest = CodePageOfDocument();
-		char inBufferCP[maxLenInputIME * 2];
-		const int size = ::WideCharToMultiByte(cpDest,
-			0, wcs, wclen, inBufferCP, sizeof(inBufferCP) - 1, 0, 0);
-		for (int i=0; i<size; i++) {
-			AddChar(inBufferCP[i]);
-		}
 	}
 }
 
@@ -1049,15 +1046,14 @@ std::vector<int> MapImeIndicators(std::vector<BYTE> inputStyle) {
 
 }
 
-void ScintillaWin::AddWString(std::wstring wcs) {
-	if (wcs.empty())
+void ScintillaWin::AddWString(std::wstring_view wsv) {
+	if (wsv.empty())
 		return;
 
 	const int codePage = CodePageOfDocument();
-	for (size_t i = 0; i < wcs.size(); ) {
-		const size_t ucWidth = UTF16CharLength(wcs[i]);
-		const std::wstring uniChar(wcs, i, ucWidth);
-		std::string docChar = StringEncode(uniChar, codePage);
+	for (size_t i = 0; i < wsv.size(); ) {
+		const size_t ucWidth = UTF16CharLength(wsv[i]);
+		const std::string docChar = StringEncode(wsv.substr(i, ucWidth), codePage);
 
 		AddCharUTF(docChar.c_str(), static_cast<unsigned int>(docChar.size()));
 		i += ucWidth;
@@ -1089,7 +1085,7 @@ sptr_t ScintillaWin::HandleCompositionInline(uptr_t, sptr_t lParam) {
 
 	if (lParam & GCS_COMPSTR) {
 		const std::wstring wcs = imc.GetCompositionString(GCS_COMPSTR);
-		if ((wcs.size() == 0) || (wcs.size() >= maxLenInputIME)) {
+		if (wcs.empty()) {
 			ShowCaretAtCurrentPosition();
 			return 0;
 		}
@@ -1103,10 +1099,10 @@ sptr_t ScintillaWin::HandleCompositionInline(uptr_t, sptr_t lParam) {
 		const bool tmpRecordingMacro = recordingMacro;
 		recordingMacro = false;
 		const int codePage = CodePageOfDocument();
-		for (size_t i = 0; i < wcs.size(); ) {
-			const size_t ucWidth = UTF16CharLength(wcs[i]);
-			const std::wstring uniChar(wcs, i, ucWidth);
-			std::string docChar = StringEncode(uniChar, codePage);
+		const std::wstring_view wsv = wcs;
+		for (size_t i = 0; i < wsv.size(); ) {
+			const size_t ucWidth = UTF16CharLength(wsv[i]);
+			const std::string docChar = StringEncode(wsv.substr(i, ucWidth), codePage);
 
 			AddCharUTF(docChar.c_str(), static_cast<unsigned int>(docChar.size()));
 
@@ -1207,13 +1203,12 @@ UINT ScintillaWin::CodePageOfDocument() const {
 sptr_t ScintillaWin::GetTextLength() {
 	if (pdoc->Length() == 0)
 		return 0;
-	std::vector<char> docBytes(pdoc->Length(), '\0');
+	std::string docBytes(pdoc->Length(), '\0');
 	pdoc->GetCharRange(&docBytes[0], 0, pdoc->Length());
 	if (IsUnicodeMode()) {
-		return UTF16Length(&docBytes[0], docBytes.size());
+		return UTF16Length(std::string_view(&docBytes[0], docBytes.size()));
 	} else {
-		return ::MultiByteToWideChar(CodePageOfDocument(), 0, &docBytes[0],
-			static_cast<int>(docBytes.size()), NULL, 0);
+		return WideCharLenFromMultiByte(CodePageOfDocument(), docBytes);
 	}
 }
 
@@ -1223,15 +1218,16 @@ sptr_t ScintillaWin::GetText(uptr_t wParam, sptr_t lParam) {
 		*ptr = L'\0';
 		return 0;
 	}
-	std::vector<char> docBytes(pdoc->Length(), '\0');
+	std::string docBytes(pdoc->Length(), '\0');
 	pdoc->GetCharRange(&docBytes[0], 0, pdoc->Length());
 	if (IsUnicodeMode()) {
-		const size_t lengthUTF16 = UTF16Length(&docBytes[0], docBytes.size());
+                const std::string_view sv(&docBytes[0], docBytes.size());
+		const size_t lengthUTF16 = UTF16Length(sv);
 		if (lParam == 0)
 			return lengthUTF16;
 		if (wParam == 0)
 			return 0;
-		size_t uLen = UTF16FromUTF8(&docBytes[0], docBytes.size(),
+		size_t uLen = UTF16FromUTF8(sv,
 			ptr, wParam - 1);
 		ptr[uLen] = L'\0';
 		return uLen;
@@ -1239,13 +1235,10 @@ sptr_t ScintillaWin::GetText(uptr_t wParam, sptr_t lParam) {
 		// Not Unicode mode
 		// Convert to Unicode using the current Scintilla code page
 		const UINT cpSrc = CodePageOfDocument();
-		int lengthUTF16 = ::MultiByteToWideChar(cpSrc, 0, &docBytes[0],
-			static_cast<int>(docBytes.size()), NULL, 0);
+		int lengthUTF16 = WideCharLenFromMultiByte(cpSrc, docBytes);
 		if (lengthUTF16 >= static_cast<int>(wParam))
 			lengthUTF16 = static_cast<int>(wParam)-1;
-		::MultiByteToWideChar(cpSrc, 0, &docBytes[0],
-			static_cast<int>(docBytes.size()),
-			ptr, lengthUTF16);
+		WideCharFromMultiByte(cpSrc, docBytes, ptr, lengthUTF16);
 		ptr[lengthUTF16] = L'\0';
 		return lengthUTF16;
 	}
@@ -1367,7 +1360,7 @@ sptr_t ScintillaWin::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam
 		case SC_WIN_IDLE:
 			// wParam=dwTickCountInitial, or 0 to initialize.  lParam=bSkipUserInputTest
 			if (idler.state) {
-				if (lParam || (WAIT_TIMEOUT == MsgWaitForMultipleObjects(0, 0, 0, 0, QS_INPUT|QS_HOTKEY))) {
+				if (lParam || (WAIT_TIMEOUT == MsgWaitForMultipleObjects(0, nullptr, 0, 0, QS_INPUT|QS_HOTKEY))) {
 					if (Idle()) {
 						// User input was given priority above, but all events do get a turn.  Other
 						// messages, notifications, etc. will get interleaved with the idle messages.
@@ -1489,7 +1482,7 @@ sptr_t ScintillaWin::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam
 					lastHighSurrogateChar = 0;
 					wclen = 2;
 				}
-				AddCharUTF16(wcs, wclen);
+				AddWString(std::wstring_view(wcs, wclen));
 			}
 			return 0;
 
@@ -1501,7 +1494,7 @@ sptr_t ScintillaWin::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam
 			} else {
 				wchar_t wcs[3] = {0};
 				const unsigned int wclen = UTF16FromUTF32Character(static_cast<unsigned int>(wParam), wcs);
-				AddCharUTF16(wcs, wclen);
+				AddWString(std::wstring_view(wcs, wclen));
 				return FALSE;
 			}
 
@@ -1747,6 +1740,8 @@ sptr_t ScintillaWin::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam
 #else
 						return 0;
 #endif
+					} else {
+						bidirectional = EditModel::Bidirectional::bidiDisabled;
 					}
 #if defined(USE_D2D)
 					DropRenderTarget();
@@ -1757,6 +1752,17 @@ sptr_t ScintillaWin::WndProc(unsigned int iMessage, uptr_t wParam, sptr_t lParam
 					InvalidateStyleRedraw();
 				}
 			}
+			break;
+
+		case SCI_SETBIDIRECTIONAL:
+			if (technology == SC_TECHNOLOGY_DEFAULT) {
+				bidirectional = EditModel::Bidirectional::bidiDisabled;
+			} else if (wParam <= SC_BIDIRECTIONAL_R2L) {
+				bidirectional = static_cast<EditModel::Bidirectional>(wParam);
+			}
+			// Invalidate all cached information including layout.
+			DropGraphics(true);
+			InvalidateStyleRedraw();
 			break;
 
 #ifdef SCI_LEXER
@@ -1800,9 +1806,9 @@ bool ScintillaWin::FineTickerRunning(TickReason reason) {
 void ScintillaWin::FineTickerStart(TickReason reason, int millis, int tolerance) {
 	FineTickerCancel(reason);
 	if (SetCoalescableTimerFn && tolerance) {
-		timers[reason] = SetCoalescableTimerFn(MainHWND(), fineTimerStart + reason, millis, NULL, tolerance);
+		timers[reason] = SetCoalescableTimerFn(MainHWND(), fineTimerStart + reason, millis, nullptr, tolerance);
 	} else {
-		timers[reason] = ::SetTimer(MainHWND(), fineTimerStart + reason, millis, NULL);
+		timers[reason] = ::SetTimer(MainHWND(), fineTimerStart + reason, millis, nullptr);
 	}
 }
 
@@ -1820,7 +1826,7 @@ bool ScintillaWin::SetIdle(bool on) {
 	// and are only posted when the message queue is empty, i.e. during idle time.
 	if (idler.state != on) {
 		if (on) {
-			idler.idlerID = ::SetTimer(MainHWND(), idleTimerID, 10, NULL)
+			idler.idlerID = ::SetTimer(MainHWND(), idleTimerID, 10, nullptr)
 				? reinterpret_cast<IdlerID>(idleTimerID) : 0;
 		} else {
 			::KillTimer(MainHWND(), reinterpret_cast<uptr_t>(idler.idlerID));
@@ -2045,10 +2051,10 @@ public:
 			if (lenMixed > utf16Mixed.size()) {
 				utf16Mixed.resize(lenMixed + 8);
 			}
-			const size_t nUtf16Mixed = ::MultiByteToWideChar(cp, 0, mixed,
-				static_cast<int>(lenMixed),
+			const size_t nUtf16Mixed = WideCharFromMultiByte(cp,
+				std::string_view(mixed, lenMixed),
 				&utf16Mixed[0],
-				static_cast<int>(utf16Mixed.size()));
+				utf16Mixed.size());
 
 			if (nUtf16Mixed == 0) {
 				// Failed to convert -> bad input
@@ -2064,9 +2070,8 @@ public:
 				if (foldedUTF8) {
 					// Maximum length of a case conversion is 6 bytes, 3 characters
 					wchar_t wFolded[20];
-					const size_t charsConverted = UTF16FromUTF8(foldedUTF8,
-							strlen(foldedUTF8),
-							wFolded, ELEMENTS(wFolded));
+					const size_t charsConverted = UTF16FromUTF8(std::string_view(foldedUTF8),
+							wFolded, std::size(wFolded));
 					for (size_t j=0; j<charsConverted; j++)
 						utf16Folded[lenFlat++] = wFolded[j];
 				} else {
@@ -2074,14 +2079,11 @@ public:
 				}
 			}
 
-			const size_t lenOut = ::WideCharToMultiByte(cp, 0,
-				&utf16Folded[0], lenFlat,
-				NULL, 0, NULL, 0);
+			const std::wstring_view wsvFolded(&utf16Folded[0], lenFlat);
+			const size_t lenOut = MultiByteLenFromWideChar(cp, wsvFolded);
 
 			if (lenOut < sizeFolded) {
-				::WideCharToMultiByte(cp, 0,
-					&utf16Folded[0], lenFlat,
-					folded, static_cast<int>(lenOut), NULL, 0);
+				MultiByteFromWideChar(cp, wsvFolded, folded, lenOut);
 				return lenOut;
 			} else {
 				return 0;
@@ -2103,20 +2105,19 @@ CaseFolder *ScintillaWin::CaseFolderForEncoding() {
 				char sCharacter[2] = "A";
 				sCharacter[0] = static_cast<char>(i);
 				wchar_t wCharacter[20];
-				const unsigned int lengthUTF16 = ::MultiByteToWideChar(cpDest, 0, sCharacter, 1,
-					wCharacter, ELEMENTS(wCharacter));
+				const unsigned int lengthUTF16 = WideCharFromMultiByte(cpDest, sCharacter,
+					wCharacter, std::size(wCharacter));
 				if (lengthUTF16 == 1) {
 					const char *caseFolded = CaseConvert(wCharacter[0], CaseConversionFold);
 					if (caseFolded) {
 						wchar_t wLower[20];
-						const size_t charsConverted = UTF16FromUTF8(caseFolded,
-							strlen(caseFolded),
-							wLower, ELEMENTS(wLower));
+						const size_t charsConverted = UTF16FromUTF8(std::string_view(caseFolded),
+							wLower, std::size(wLower));
 						if (charsConverted == 1) {
 							char sCharacterLowered[20];
-							const unsigned int lengthConverted = ::WideCharToMultiByte(cpDest, 0,
-								wLower, static_cast<int>(charsConverted),
-								sCharacterLowered, ELEMENTS(sCharacterLowered), NULL, 0);
+							const unsigned int lengthConverted = MultiByteFromWideChar(cpDest,
+								std::wstring_view(wLower, charsConverted),
+								sCharacterLowered, std::size(sCharacterLowered));
 							if ((lengthConverted == 1) && (sCharacter[0] != sCharacterLowered[0])) {
 								pcf->SetTranslation(sCharacter[0], sCharacterLowered[0]);
 							}
@@ -2199,7 +2200,7 @@ public:
 	GlobalMemory &operator=(const GlobalMemory &) = delete;
 	GlobalMemory &operator=(GlobalMemory &&) = delete;
 	~GlobalMemory() {
-		PLATFORM_ASSERT(!ptr);
+		assert(!ptr);
 		assert(!hand);
 	}
 	void Allocate(size_t bytes) noexcept {
@@ -2209,15 +2210,15 @@ public:
 			ptr = ::GlobalLock(hand);
 		}
 	}
-	HGLOBAL Unlock() {
-		PLATFORM_ASSERT(ptr);
+	HGLOBAL Unlock() noexcept {
+		assert(ptr);
 		HGLOBAL handCopy = hand;
 		::GlobalUnlock(hand);
 		ptr = nullptr;
-		hand = 0;
+		hand = {};
 		return handCopy;
 	}
-	void SetClip(UINT uFormat) {
+	void SetClip(UINT uFormat) noexcept {
 		::SetClipboardData(uFormat, Unlock());
 	}
 	operator bool() const noexcept {
@@ -2275,18 +2276,17 @@ void ScintillaWin::Paste() {
 			// Default Scintilla behaviour in Unicode mode
 			if (IsUnicodeMode()) {
 				const size_t bytes = memUSelection.Size();
-				len = UTF8Length(uptr, bytes / 2);
+				const std::wstring_view wsv(uptr, bytes / 2);
+				len = UTF8Length(wsv);
 				putf.resize(len + 1);
-				UTF8FromUTF16(uptr, bytes / 2, &putf[0], len);
+				UTF8FromUTF16(wsv, &putf[0], len);
 			} else {
 				// CF_UNICODETEXT available, but not in Unicode mode
 				// Convert from Unicode to current Scintilla code page
 				const UINT cpDest = CodePageOfDocument();
-				len = ::WideCharToMultiByte(cpDest, 0, uptr, -1,
-				                            NULL, 0, NULL, NULL) - 1; // subtract 0 terminator
-				putf.resize(len + 1);
-				::WideCharToMultiByte(cpDest, 0, uptr, -1,
-					                      &putf[0], static_cast<int>(len) + 1, NULL, NULL);
+				len = MultiByteLenFromWideChar(cpDest, uptr);
+				putf.resize(len);
+				MultiByteFromWideChar(cpDest, uptr, &putf[0], len);
 			}
 
 			InsertPasteShape(&putf[0], len, pasteShape);
@@ -2309,13 +2309,13 @@ void ScintillaWin::Paste() {
 				if (IsUnicodeMode()) {
 					std::vector<wchar_t> uptr(len+1);
 
-					const int ilen = static_cast<int>(len);
-					const size_t ulen = ::MultiByteToWideChar(CP_ACP, 0,
-					                    ptr, ilen, &uptr[0], ilen +1);
+					const size_t ulen = WideCharFromMultiByte(CP_ACP,
+					                    std::string_view(ptr, len), &uptr[0], len + 1);
 
-					const size_t mlen = UTF8Length(&uptr[0], ulen);
+					const std::wstring_view wsv(&uptr[0], ulen);
+					const size_t mlen = UTF8Length(wsv);
 					std::vector<char> putf(mlen+1);
-					UTF8FromUTF16(&uptr[0], ulen, &putf[0], mlen);
+					UTF8FromUTF16(wsv, &putf[0], mlen);
 
 					InsertPasteShape(&putf[0], mlen, pasteShape);
 				} else {
@@ -2386,7 +2386,7 @@ STDMETHODIMP FormatEnumerator_Next(FormatEnumerator *fe, ULONG celt, FORMATETC *
 	unsigned int putPos = 0;
 	while ((fe->pos < fe->formats.size()) && (putPos < celt)) {
 		rgelt->cfFormat = fe->formats[fe->pos];
-		rgelt->ptd = 0;
+		rgelt->ptd = nullptr;
 		rgelt->dwAspect = DVASPECT_CONTENT;
 		rgelt->lindex = -1;
 		rgelt->tymed = TYMED_HGLOBAL;
@@ -2494,7 +2494,7 @@ STDMETHODIMP DataObject_GetDataHere(DataObject *, FORMATETC *, STGMEDIUM *) {
 
 STDMETHODIMP DataObject_QueryGetData(DataObject *pd, FORMATETC *pFE) {
 	if (pd->sci->DragIsRectangularOK(pFE->cfFormat) &&
-	    pFE->ptd == 0 &&
+	    pFE->ptd == nullptr &&
 	    (pFE->dwAspect & DVASPECT_CONTENT) != 0 &&
 	    pFE->lindex == -1 &&
 	    (pFE->tymed & TYMED_HGLOBAL) != 0
@@ -2505,7 +2505,7 @@ STDMETHODIMP DataObject_QueryGetData(DataObject *pd, FORMATETC *pFE) {
 	const bool formatOK = (pFE->cfFormat == CF_TEXT) ||
 		((pFE->cfFormat == CF_UNICODETEXT) && pd->sci->IsUnicodeMode());
 	if (!formatOK ||
-	    pFE->ptd != 0 ||
+	    pFE->ptd != nullptr ||
 	    (pFE->dwAspect & DVASPECT_CONTENT) == 0 ||
 	    pFE->lindex != -1 ||
 	    (pFE->tymed & TYMED_HGLOBAL) == 0
@@ -2524,7 +2524,7 @@ STDMETHODIMP DataObject_GetCanonicalFormatEtc(DataObject *pd, FORMATETC *, FORMA
 		pFEOut->cfFormat = CF_UNICODETEXT;
 	else
 		pFEOut->cfFormat = CF_TEXT;
-	pFEOut->ptd = 0;
+	pFEOut->ptd = nullptr;
 	pFEOut->dwAspect = DVASPECT_CONTENT;
 	pFEOut->lindex = -1;
 	pFEOut->tymed = TYMED_HGLOBAL;
@@ -2540,16 +2540,16 @@ STDMETHODIMP DataObject_EnumFormatEtc(DataObject *pd, DWORD dwDirection, IEnumFO
 	try {
 		//Platform::DebugPrintf("DOB EnumFormatEtc %d\n", dwDirection);
 		if (dwDirection != DATADIR_GET) {
-			*ppEnum = 0;
+			*ppEnum = nullptr;
 			return E_FAIL;
 		}
 		FormatEnumerator *pfe;
 		if (pd->sci->IsUnicodeMode()) {
 			CLIPFORMAT formats[] = {CF_UNICODETEXT, CF_TEXT};
-			pfe = new FormatEnumerator(0, formats, ELEMENTS(formats));
+			pfe = new FormatEnumerator(0, formats, std::size(formats));
 		} else {
 			CLIPFORMAT formats[] = {CF_TEXT};
-			pfe = new FormatEnumerator(0, formats, ELEMENTS(formats));
+			pfe = new FormatEnumerator(0, formats, std::size(formats));
 		}
 		return FormatEnumerator_QueryInterface(pfe, IID_IEnumFORMATETC,
 											   reinterpret_cast<void **>(ppEnum));
@@ -2697,7 +2697,7 @@ void ScintillaWin::ImeStartComposition() {
 			lf.lfFaceName[0] = L'\0';
 			if (vs.styles[styleHere].fontName) {
 				const char* fontName = vs.styles[styleHere].fontName;
-				UTF16FromUTF8(fontName, strlen(fontName)+1, lf.lfFaceName, LF_FACESIZE);
+				UTF16FromUTF8(std::string_view(fontName), lf.lfFaceName, LF_FACESIZE);
 			}
 
 			::ImmSetCompositionFontW(imc.hIMC, &lf);
@@ -2756,7 +2756,7 @@ LRESULT ScintillaWin::ImeOnReconvert(LPARAM lParam) {
 	if (!imc.hIMC)
 		return 0;
 
-	if (!::ImmSetCompositionStringW(imc.hIMC, SCS_QUERYRECONVERTSTRING, rc, rcSize, NULL, 0))
+	if (!::ImmSetCompositionStringW(imc.hIMC, SCS_QUERYRECONVERTSTRING, rc, rcSize, nullptr, 0))
 		return 0;
 
 	// No selection asks IME to fill target fields with its own value.
@@ -2809,11 +2809,11 @@ void ScintillaWin::CopyToClipboard(const SelectionText &selectedText) {
 
 	// Default Scintilla behaviour in Unicode mode
 	if (IsUnicodeMode()) {
-		const size_t uchars = UTF16Length(selectedText.Data(),
-			selectedText.LengthWithTerminator());
+                const std::string_view sv(selectedText.Data(), selectedText.LengthWithTerminator());
+		const size_t uchars = UTF16Length(sv);
 		uniText.Allocate(2 * uchars);
 		if (uniText) {
-			UTF16FromUTF8(selectedText.Data(), selectedText.LengthWithTerminator(),
+			UTF16FromUTF8(sv,
 				static_cast<wchar_t *>(uniText.ptr), uchars);
 		}
 	} else {
@@ -2821,12 +2821,11 @@ void ScintillaWin::CopyToClipboard(const SelectionText &selectedText) {
 		// Convert to Unicode using the current Scintilla code page
 		const UINT cpSrc = CodePageFromCharSet(
 					selectedText.characterSet, selectedText.codePage);
-		const int uLen = ::MultiByteToWideChar(cpSrc, 0, selectedText.Data(),
-			static_cast<int>(selectedText.LengthWithTerminator()), 0, 0);
+		const std::string_view svSelected(selectedText.Data(), selectedText.LengthWithTerminator());
+		const size_t uLen = WideCharLenFromMultiByte(cpSrc, svSelected);
 		uniText.Allocate(2 * uLen);
 		if (uniText) {
-			::MultiByteToWideChar(cpSrc, 0, selectedText.Data(),
-				static_cast<int>(selectedText.LengthWithTerminator()),
+			WideCharFromMultiByte(cpSrc, svSelected,
 				static_cast<wchar_t *>(uniText.ptr), uLen);
 		}
 	}
@@ -3101,7 +3100,7 @@ STDMETHODIMP ScintillaWin::Drop(LPDATAOBJECT pIDataSource, DWORD grfKeyState,
 
 		SetDragPosition(SelectionPosition(Sci::invalidPosition));
 
-		STGMEDIUM medium = {0, {0}, 0};
+		STGMEDIUM medium {};
 
 		std::vector<char> data;	// Includes terminating NUL
 
@@ -3114,9 +3113,10 @@ STDMETHODIMP ScintillaWin::Drop(LPDATAOBJECT pIDataSource, DWORD grfKeyState,
 				if (IsUnicodeMode()) {
 					const size_t tlen = memUDrop.Size();
 					// Convert UTF-16 to UTF-8
-					const size_t dataLen = UTF8Length(udata, tlen/2);
-					data.resize(dataLen+1);
-					UTF8FromUTF16(udata, tlen/2, &data[0], dataLen);
+					const std::wstring_view wsv(udata, tlen / 2);
+					const size_t dataLen = UTF8Length(wsv);
+					data.resize(dataLen);
+					UTF8FromUTF16(wsv, &data[0], dataLen);
 				} else {
 					// Convert UTF-16 to ANSI
 					//
@@ -3124,11 +3124,9 @@ STDMETHODIMP ScintillaWin::Drop(LPDATAOBJECT pIDataSource, DWORD grfKeyState,
 					// CF_UNICODETEXT available, but not in Unicode mode
 					// Convert from Unicode to current Scintilla code page
 					const UINT cpDest = CodePageOfDocument();
-					const int tlen = ::WideCharToMultiByte(cpDest, 0, udata, -1,
-						NULL, 0, NULL, NULL) - 1; // subtract 0 terminator
-					data.resize(tlen + 1);
-					::WideCharToMultiByte(cpDest, 0, udata, -1,
-							&data[0], tlen + 1, NULL, NULL);
+					const int tlen = MultiByteLenFromWideChar(cpDest, udata);
+					data.resize(tlen);
+					MultiByteFromWideChar(cpDest, udata, &data[0], tlen);
 				}
 			}
 			memUDrop.Unlock();
@@ -3139,7 +3137,7 @@ STDMETHODIMP ScintillaWin::Drop(LPDATAOBJECT pIDataSource, DWORD grfKeyState,
 				GlobalMemory memDrop(medium.hGlobal);
 				const char *cdata = static_cast<const char *>(memDrop.ptr);
 				if (cdata)
-					data.assign(cdata, cdata+strlen(cdata)+1);
+					data.assign(cdata, cdata+strlen(cdata));
 				memDrop.Unlock();
 			}
 		}
@@ -3156,7 +3154,7 @@ STDMETHODIMP ScintillaWin::Drop(LPDATAOBJECT pIDataSource, DWORD grfKeyState,
 		::ScreenToClient(MainHWND(), &rpt);
 		const SelectionPosition movePos = SPositionFromLocation(PointFromPOINT(rpt), false, false, UserVirtualSpace());
 
-		DropAt(movePos, &data[0], data.size() - 1, *pdwEffect == DROPEFFECT_MOVE, hrRectangular == S_OK);
+		DropAt(movePos, &data[0], data.size(), *pdwEffect == DROPEFFECT_MOVE, hrRectangular == S_OK);
 
 		// Free data
 		if (medium.pUnkForRelease)
@@ -3176,7 +3174,7 @@ STDMETHODIMP ScintillaWin::GetData(FORMATETC *pFEIn, STGMEDIUM *pSTM) {
 	const bool formatOK = (pFEIn->cfFormat == CF_TEXT) ||
 		((pFEIn->cfFormat == CF_UNICODETEXT) && IsUnicodeMode());
 	if (!formatOK ||
-	    pFEIn->ptd != 0 ||
+	    pFEIn->ptd != nullptr ||
 	    (pFEIn->dwAspect & DVASPECT_CONTENT) == 0 ||
 	    pFEIn->lindex != -1 ||
 	    (pFEIn->tymed & TYMED_HGLOBAL) == 0
@@ -3189,10 +3187,11 @@ STDMETHODIMP ScintillaWin::GetData(FORMATETC *pFEIn, STGMEDIUM *pSTM) {
 
 	GlobalMemory text;
 	if (pFEIn->cfFormat == CF_UNICODETEXT) {
-		const size_t uchars = UTF16Length(drag.Data(), drag.LengthWithTerminator());
+                const std::string_view sv(drag.Data(), drag.LengthWithTerminator());
+		const size_t uchars = UTF16Length(sv);
 		text.Allocate(2 * uchars);
 		if (text) {
-			UTF16FromUTF8(drag.Data(), drag.LengthWithTerminator(),
+			UTF16FromUTF8(sv,
 				static_cast<wchar_t *>(text.ptr), uchars);
 		}
 	} else {
@@ -3202,7 +3201,7 @@ STDMETHODIMP ScintillaWin::GetData(FORMATETC *pFEIn, STGMEDIUM *pSTM) {
 		}
 	}
 	pSTM->hGlobal = text ? text.Unlock() : 0;
-	pSTM->pUnkForRelease = 0;
+	pSTM->pUnkForRelease = nullptr;
 	return S_OK;
 }
 
@@ -3212,37 +3211,26 @@ bool ScintillaWin::Register(HINSTANCE hInstance_) noexcept {
 
 	// Register the Scintilla class
 	// Register Scintilla as a wide character window
-	WNDCLASSEXW wndclass;
+	WNDCLASSEXW wndclass {};
 	wndclass.cbSize = sizeof(wndclass);
 	wndclass.style = CS_GLOBALCLASS | CS_HREDRAW | CS_VREDRAW;
 	wndclass.lpfnWndProc = ScintillaWin::SWndProc;
-	wndclass.cbClsExtra = 0;
 	wndclass.cbWndExtra = sizeof(ScintillaWin *);
 	wndclass.hInstance = hInstance;
-	wndclass.hIcon = NULL;
-	wndclass.hCursor = NULL;
-	wndclass.hbrBackground = NULL;
-	wndclass.lpszMenuName = NULL;
 	wndclass.lpszClassName = L"Scintilla";
-	wndclass.hIconSm = 0;
 	scintillaClassAtom = ::RegisterClassExW(&wndclass);
 	bool result = 0 != scintillaClassAtom;
 
 	if (result) {
 		// Register the CallTip class
-		WNDCLASSEX wndclassc;
+		WNDCLASSEX wndclassc {};
 		wndclassc.cbSize = sizeof(wndclassc);
 		wndclassc.style = CS_GLOBALCLASS | CS_HREDRAW | CS_VREDRAW;
-		wndclassc.cbClsExtra = 0;
 		wndclassc.cbWndExtra = sizeof(ScintillaWin *);
 		wndclassc.hInstance = hInstance;
-		wndclassc.hIcon = NULL;
-		wndclassc.hbrBackground = NULL;
-		wndclassc.lpszMenuName = NULL;
 		wndclassc.lpfnWndProc = ScintillaWin::CTWndProc;
 		wndclassc.hCursor = ::LoadCursor(NULL, IDC_ARROW);
 		wndclassc.lpszClassName = callClassName;
-		wndclassc.hIconSm = 0;
 
 		callClassAtom = ::RegisterClassEx(&wndclassc);
 		result = 0 != callClassAtom;
@@ -3370,6 +3358,7 @@ LRESULT PASCAL ScintillaWin::CTWndProc(
 				}
 				surfaceWindow->SetUnicodeMode(SC_CP_UTF8 == sciThis->ct.codePage);
 				surfaceWindow->SetDBCSMode(sciThis->ct.codePage);
+				surfaceWindow->SetBidiR2L(sciThis->BidirectionalR2L());
 				sciThis->ct.PaintCT(surfaceWindow.get());
 #if defined(USE_D2D)
 				if (pCTRenderTarget)

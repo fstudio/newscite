@@ -17,6 +17,7 @@
 #include <map>
 #include <set>
 #include <algorithm>
+#include <chrono>
 #include <sstream>
 
 #include <fcntl.h>
@@ -27,8 +28,6 @@
 
 #endif
 
-#include "Scintilla.h"
-
 #include "GUI.h"
 
 #include "StringHelpers.h"
@@ -37,10 +36,6 @@
 
 // The comparison and case changing functions here assume ASCII
 // or extended ASCII such as the normal Windows code page.
-
-inline bool IsASpace(unsigned int ch) {
-    return (ch == ' ') || ((ch >= 0x09) && (ch <= 0x0d));
-}
 
 static std::set<std::string> FilterFromString(const std::string &values) {
 	std::vector<std::string> vsFilter = StringSplit(values, ' ');
@@ -234,11 +229,11 @@ std::string PropSetFile::Evaluate(const char *key) const {
 // for that, through a recursive function and a simple chain of pointers.
 
 struct VarChain {
-	VarChain(const char*var_=nullptr, const VarChain *link_=nullptr) noexcept : var(var_), link(link_) {}
+	VarChain(const char *var_=nullptr, const VarChain *link_=nullptr) noexcept : var(var_), link(link_) {}
 
 	bool contains(const char *testVar) const {
 		return (var && (0 == strcmp(var, testVar)))
-			|| (link && link->contains(testVar));
+		       || (link && link->contains(testVar));
 	}
 
 	const char *var;
@@ -299,9 +294,16 @@ int PropSetFile::GetInt(const char *key, int defaultValue) const {
 		if (val.length()) {
 			return std::stoi(val);
 		}
-	}
-	catch (std::logic_error &) {
+	} catch (std::logic_error &) {
 		// Ignore bad values, either non-numeric or out of range numberic
+	}
+	return defaultValue;
+}
+
+intptr_t PropSetFile::GetInteger(const char *key, intptr_t defaultValue) const {
+	std::string val = GetExpandedString(key);
+	if (val.length()) {
+		return static_cast<intptr_t>(std::stoll(val));
 	}
 	return defaultValue;
 }
@@ -314,14 +316,14 @@ long long PropSetFile::GetLongLong(const char *key, long long defaultValue) cons
 	return defaultValue;
 }
 
-void PropSetFile::Clear() {
+void PropSetFile::Clear() noexcept {
 	props.clear();
 }
 
 /**
  * Get a line of input. If end of line escaped with '\\' then continue reading.
  */
-static bool GetFullLine(const char *&fpc, size_t &lenData, char *s, size_t len) {
+static bool GetFullLine(const char *&fpc, size_t &lenData, char *s, size_t len) noexcept {
 	bool continuation = true;
 	s[0] = '\0';
 	while ((len > 1) && lenData > 0) {
@@ -354,11 +356,11 @@ static bool GetFullLine(const char *&fpc, size_t &lenData, char *s, size_t len) 
 	return false;
 }
 
-static bool IsSpaceOrTab(char ch) {
+static bool IsSpaceOrTab(char ch) noexcept {
 	return (ch == ' ') || (ch == '\t');
 }
 
-static bool IsCommentLine(const char *line) {
+static bool IsCommentLine(const char *line) noexcept {
 	while (IsSpaceOrTab(*line)) ++line;
 	return (*line == '#');
 }
@@ -371,18 +373,18 @@ static bool GenericPropertiesFile(const FilePath &filename) {
 }
 
 void PropSetFile::Import(const FilePath &filename, const FilePath &directoryForImports, const ImportFilter &filter,
-	FilePathSet *imports, size_t depth) {
+			 FilePathSet *imports, size_t depth) {
 	if (depth > 20)	// Possibly recursive import so give up to avoid crash
 		return;
 	if (Read(filename, directoryForImports, filter, imports, depth)) {
-		if (imports && (std::find(imports->begin(),imports->end(), filename) == imports->end())) {
+		if (imports && (std::find(imports->begin(), imports->end(), filename) == imports->end())) {
 			imports->push_back(filename);
 		}
 	}
 }
 
 PropSetFile::ReadLineState PropSetFile::ReadLine(const char *lineBuffer, ReadLineState rls, const FilePath &directoryForImports,
-	const ImportFilter &filter, FilePathSet *imports, size_t depth) {
+		const ImportFilter &filter, FilePathSet *imports, size_t depth) {
 	//UnSlash(lineBuffer);
 	if ((rls == rlConditionFalse) && (!IsSpaceOrTab(lineBuffer[0])))    // If clause ends with first non-indented line
 		rls = rlActive;
@@ -411,8 +413,8 @@ PropSetFile::ReadLineState PropSetFile::ReadLine(const char *lineBuffer, ReadLin
 				directoryForImports.List(directories, files);
 				for (const FilePath &fpFile : files) {
 					if (IsPropertiesFile(fpFile) &&
-						!GenericPropertiesFile(fpFile) &&
-						filter.IsValid(fpFile.BaseName().AsUTF8())) {
+							!GenericPropertiesFile(fpFile) &&
+							filter.IsValid(fpFile.BaseName().AsUTF8())) {
 						FilePath importPath(directoryForImports, fpFile);
 						Import(importPath, directoryForImports, filter, imports, depth + 1);
 					}
@@ -430,7 +432,7 @@ PropSetFile::ReadLineState PropSetFile::ReadLine(const char *lineBuffer, ReadLin
 }
 
 void PropSetFile::ReadFromMemory(const char *data, size_t len, const FilePath &directoryForImports,
-                                 const ImportFilter &filter, FilePathSet *imports, size_t depth) {
+				 const ImportFilter &filter, FilePathSet *imports, size_t depth) {
 	const char *pd = data;
 	std::vector<char> lineBuffer(len+1);	// +1 for NUL
 	ReadLineState rls = rlActive;
@@ -448,7 +450,7 @@ void PropSetFile::ReadFromMemory(const char *data, size_t len, const FilePath &d
 }
 
 bool PropSetFile::Read(const FilePath &filename, const FilePath &directoryForImports,
-                       const ImportFilter &filter, FilePathSet *imports, size_t depth) {
+		       const ImportFilter &filter, FilePathSet *imports, size_t depth) {
 	const std::string propsData = filename.Read();
 	const size_t lenFile = propsData.size();
 	if (lenFile > 0) {
@@ -463,14 +465,9 @@ bool PropSetFile::Read(const FilePath &filename, const FilePath &directoryForImp
 	return false;
 }
 
-void PropSetFile::SetInteger(const char *key, int i) {
-	const std::string tmp = std::to_string(i);
-	Set(key, tmp);
-}
-
 namespace {
 
-bool StringEqual(std::string_view a, std::string_view b, bool caseSensitive) {
+bool StringEqual(std::string_view a, std::string_view b, bool caseSensitive) noexcept {
 	if (caseSensitive) {
 		return a == b;
 	} else {
@@ -521,7 +518,7 @@ bool MatchWild(std::string_view pattern, std::string_view text, bool caseSensiti
 	return false;
 }
 
-bool startswith(const std::string &s, const char *keybase) {
+bool startswith(const std::string &s, const char *keybase) noexcept {
 	return isprefix(s.c_str(), keybase);
 }
 
@@ -627,7 +624,7 @@ bool PropSetFile::GetNext(const char *&key, const char *&val) {
 
 bool IsPropertiesFile(const FilePath &filename) {
 	FilePath ext = filename.Extension();
-	if (EqualCaseInsensitive(ext.AsUTF8().c_str(), PROPERTIES_EXTENSION + 1))
+	if (EqualCaseInsensitive(ext.AsUTF8().c_str(), extensionProperties + 1))
 		return true;
 	return false;
 }

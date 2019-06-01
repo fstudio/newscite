@@ -14,7 +14,6 @@
 #include <assert.h>
 #include <ctype.h>
 #include <limits.h>
-#include <wchar.h>
 
 // C++ wrappers of C standard library
 #include <cstddef>
@@ -35,6 +34,7 @@
 #include <utility>
 #include <tuple>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <deque>
 #include <map>
@@ -44,6 +44,7 @@
 #include <iterator>
 #include <functional>
 #include <memory>
+#include <numeric>
 #include <chrono>
 #include <regex>
 #include <iostream>
@@ -175,9 +176,6 @@
 #import "ScintillaView.h"
 #import "ScintillaCocoa.h"
 #import "PlatCocoa.h"
-
-// curses
-#include "ScintillaCurses.h"
 
 // Catch testing framework
 #include "catch.hpp"

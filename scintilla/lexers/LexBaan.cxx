@@ -400,7 +400,7 @@ public:
 	}
 
 	int SCI_METHOD Version() const override {
-		return lvOriginal;
+		return lvRelease4;
 	}
 
 	void SCI_METHOD Release() override {
@@ -435,7 +435,7 @@ public:
 		return NULL;
 	}
 
-	static ILexer * LexerFactoryBaan() {
+	static ILexer4 * LexerFactoryBaan() {
 		return new LexerBaan();
 	}
 };

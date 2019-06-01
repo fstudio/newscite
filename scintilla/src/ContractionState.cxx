@@ -10,6 +10,7 @@
 #include <cstring>
 
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 #include <algorithm>
 #include <memory>
@@ -100,11 +101,11 @@ ContractionState<LINE>::~ContractionState() {
 template <typename LINE>
 void ContractionState<LINE>::EnsureData() {
 	if (OneToOne()) {
-		visible = std::unique_ptr<RunStyles<LINE, char>>(new RunStyles<LINE, char>());
-		expanded = std::unique_ptr<RunStyles<LINE, char>>(new RunStyles<LINE, char>());
-		heights = std::unique_ptr<RunStyles<LINE, int>>(new RunStyles<LINE, int>());
-		foldDisplayTexts = std::unique_ptr<SparseVector<UniqueString>>(new SparseVector<UniqueString>());
-		displayLines = std::unique_ptr<Partitioning<LINE>>(new Partitioning<LINE>(4));
+		visible = std::make_unique<RunStyles<LINE, char>>();
+		expanded = std::make_unique<RunStyles<LINE, char>>();
+		heights = std::make_unique<RunStyles<LINE, int>>();
+		foldDisplayTexts = std::make_unique<SparseVector<UniqueString>>();
+		displayLines = std::make_unique<Partitioning<LINE>>(4);
 		InsertLines(0, linesInDocument);
 	}
 }
@@ -209,16 +210,24 @@ Sci::Line ContractionState<LINE>::DocFromDisplay(Sci::Line lineDisplay) const {
 
 template <typename LINE>
 void ContractionState<LINE>::InsertLines(Sci::Line lineDoc, Sci::Line lineCount) {
-	for (Sci::Line l = 0; l < lineCount; l++) {
-		InsertLine(lineDoc + l);
+	if (OneToOne()) {
+		linesInDocument += static_cast<LINE>(lineCount);
+	} else {
+		for (Sci::Line l = 0; l < lineCount; l++) {
+			InsertLine(lineDoc + l);
+		}
 	}
 	Check();
 }
 
 template <typename LINE>
 void ContractionState<LINE>::DeleteLines(Sci::Line lineDoc, Sci::Line lineCount) {
-	for (Sci::Line l = 0; l < lineCount; l++) {
-		DeleteLine(lineDoc);
+	if (OneToOne()) {
+		linesInDocument -= static_cast<LINE>(lineCount);
+	} else {
+		for (Sci::Line l = 0; l < lineCount; l++) {
+			DeleteLine(lineDoc);
+		}
 	}
 	Check();
 }
@@ -404,9 +413,9 @@ namespace Scintilla {
 
 std::unique_ptr<IContractionState> ContractionStateCreate(bool largeDocument) {
 	if (largeDocument)
-		return std::unique_ptr<ContractionState<Sci::Line>>(new ContractionState<Sci::Line>());
+		return std::make_unique<ContractionState<Sci::Line>>();
 	else
-		return std::unique_ptr<ContractionState<int>>(new ContractionState<int>());
+		return std::make_unique<ContractionState<int>>();
 }
 
 }

@@ -14,6 +14,7 @@
 
 #include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 #include <algorithm>
 #include <memory>
@@ -284,7 +285,7 @@ void Action::Create(actionType at_, Sci::Position position_, const char *data_, 
 	position = position_;
 	at = at_;
 	if (lenData_) {
-		data = std::unique_ptr<char []>(new char[lenData_]);
+		data = std::make_unique<char[]>(lenData_);
 		memcpy(&data[0], data_, lenData_);
 	}
 	lenData = lenData_;
@@ -455,7 +456,7 @@ void UndoHistory::SetSavePoint() {
 	savePoint = currentAction;
 }
 
-bool UndoHistory::IsSavePoint() const {
+bool UndoHistory::IsSavePoint() const noexcept {
 	return savePoint == currentAction;
 }
 
@@ -479,7 +480,7 @@ int UndoHistory::TentativeSteps() {
 		return -1;
 }
 
-bool UndoHistory::CanUndo() const {
+bool UndoHistory::CanUndo() const noexcept {
 	return (currentAction > 0) && (maxAction > 0);
 }
 
@@ -504,7 +505,7 @@ void UndoHistory::CompletedUndoStep() {
 	currentAction--;
 }
 
-bool UndoHistory::CanRedo() const {
+bool UndoHistory::CanRedo() const noexcept {
 	return maxAction > currentAction;
 }
 
@@ -536,9 +537,9 @@ CellBuffer::CellBuffer(bool hasStyles_, bool largeDocument_) :
 	utf8LineEnds = 0;
 	collectingUndo = true;
 	if (largeDocument)
-		plv = std::unique_ptr<LineVector<Sci::Position>>(new LineVector<Sci::Position>());
+		plv = std::make_unique<LineVector<Sci::Position>>();
 	else
-		plv = std::unique_ptr<LineVector<int>>(new LineVector<int>());
+		plv = std::make_unique<LineVector<int>>();
 }
 
 CellBuffer::~CellBuffer() {
@@ -594,7 +595,7 @@ const char *CellBuffer::RangePointer(Sci::Position position, Sci::Position range
 	return substance.RangePointer(position, rangeLength);
 }
 
-Sci::Position CellBuffer::GapPosition() const {
+Sci::Position CellBuffer::GapPosition() const noexcept {
 	return substance.GapPosition();
 }
 
@@ -677,7 +678,6 @@ void CellBuffer::Allocate(Sci::Position newSize) {
 void CellBuffer::SetUTF8Substance(bool utf8Substance_) {
 	if (utf8Substance != utf8Substance_) {
 		utf8Substance = utf8Substance_;
-		ResetLineEnds();
 	}
 }
 
@@ -690,7 +690,7 @@ void CellBuffer::SetLineEndTypes(int utf8LineEnds_) {
 	}
 }
 
-bool CellBuffer::ContainsLineEnd(const char *s, Sci::Position length) const {
+bool CellBuffer::ContainsLineEnd(const char *s, Sci::Position length) const noexcept {
 	unsigned char chBeforePrev = 0;
 	unsigned char chPrev = 0;
 	for (Sci::Position i = 0; i < length; i++) {
@@ -755,7 +755,7 @@ Sci::Line CellBuffer::LineFromPositionIndex(Sci::Position pos, int lineCharacter
 	return plv->LineFromPositionIndex(pos, lineCharacterIndex);
 }
 
-bool CellBuffer::IsReadOnly() const {
+bool CellBuffer::IsReadOnly() const noexcept {
 	return readOnly;
 }
 
@@ -763,11 +763,11 @@ void CellBuffer::SetReadOnly(bool set) {
 	readOnly = set;
 }
 
-bool CellBuffer::IsLarge() const {
+bool CellBuffer::IsLarge() const noexcept {
 	return largeDocument;
 }
 
-bool CellBuffer::HasStyles() const {
+bool CellBuffer::HasStyles() const noexcept {
 	return hasStyles;
 }
 
@@ -775,7 +775,7 @@ void CellBuffer::SetSavePoint() {
 	uh.SetSavePoint();
 }
 
-bool CellBuffer::IsSavePoint() const {
+bool CellBuffer::IsSavePoint() const noexcept {
 	return uh.IsSavePoint();
 }
 
@@ -791,7 +791,7 @@ int CellBuffer::TentativeSteps() {
 	return uh.TentativeSteps();
 }
 
-bool CellBuffer::TentativeActive() const {
+bool CellBuffer::TentativeActive() const noexcept {
 	return uh.TentativeActive();
 }
 
@@ -805,7 +805,7 @@ void CellBuffer::RemoveLine(Sci::Line line) {
 	plv->RemoveLine(line);
 }
 
-bool CellBuffer::UTF8LineEndOverlaps(Sci::Position position) const {
+bool CellBuffer::UTF8LineEndOverlaps(Sci::Position position) const noexcept {
 	const unsigned char bytes[] = {
 		static_cast<unsigned char>(substance.ValueAt(position-2)),
 		static_cast<unsigned char>(substance.ValueAt(position-1)),
@@ -828,7 +828,7 @@ bool CellBuffer::UTF8IsCharacterBoundary(Sci::Position position) const {
 			if (!UTF8IsTrailByte(back.front())) {
 				if (i > 0) {
 					// Have reached a non-trail
-					const int cla = UTF8Classify(reinterpret_cast<const unsigned char*>(back.data()), back.size());
+					const int cla = UTF8Classify(back);
 					if ((cla & UTF8MaskInvalid) || (cla != i)) {
 						return false;
 					}
@@ -884,14 +884,14 @@ void CellBuffer::ResetLineEnds() {
 
 namespace {
 
-CountWidths CountCharacterWidthsUTF8(const char *s, size_t len) noexcept {
+CountWidths CountCharacterWidthsUTF8(std::string_view sv) noexcept {
 	CountWidths cw;
-	size_t remaining = len;
+	size_t remaining = sv.length();
 	while (remaining > 0) {
-		const int utf8Status = UTF8Classify(reinterpret_cast<const unsigned char*>(s), len);
+		const int utf8Status = UTF8Classify(sv);
 		const int lenChar = utf8Status & UTF8MaskWidth;
 		cw.CountChar(lenChar);
-		s += lenChar;
+		sv.remove_prefix(lenChar);
 		remaining -= lenChar;
 	}
 	return cw;
@@ -912,8 +912,8 @@ void CellBuffer::RecalculateIndexLineStarts(Sci::Line lineFirst, Sci::Line lineL
 		posLineEnd = LineStart(line+1);
 		const Sci::Position width = posLineEnd - posLineStart;
 		text.resize(width);
-		GetCharRange(const_cast<char *>(text.data()), posLineStart, width);
-		const CountWidths cw = CountCharacterWidthsUTF8(text.data(), text.size());
+		GetCharRange(text.data(), posLineStart, width);
+		const CountWidths cw = CountCharacterWidthsUTF8(text);
 		plv->SetLineCharactersWidth(line, cw);
 	}
 }
@@ -942,7 +942,7 @@ void CellBuffer::BasicInsertString(Sci::Position position, const char *s, Sci::P
 		// Actually, don't need to check that whole insertion is valid just that there
 		// are no potential fragments at ends.
 		simpleInsertion = UTF8IsCharacterBoundary(position) &&
-			UTF8IsValid(s, insertLength);
+			UTF8IsValid(std::string_view(s, insertLength));
 	}
 
 	substance.InsertFromArray(position, s, 0, insertLength);
@@ -1018,7 +1018,7 @@ void CellBuffer::BasicInsertString(Sci::Position position, const char *s, Sci::P
 	}
 	if (maintainingIndex) {
 		if (simpleInsertion) {
-			const CountWidths cw = CountCharacterWidthsUTF8(s, insertLength);
+			const CountWidths cw = CountCharacterWidthsUTF8(std::string_view(s, insertLength));
 			plv->InsertCharacters(linePosition, cw);
 		} else {
 			RecalculateIndexLineStarts(linePosition, lineInsert - 1);
@@ -1058,10 +1058,10 @@ void CellBuffer::BasicDeleteChars(Sci::Position position, Sci::Position deleteLe
 				UTF8IsCharacterBoundary(position) && UTF8IsCharacterBoundary(posEnd);
 			if (simpleDeletion) {
 				std::string text(deleteLength, '\0');
-				GetCharRange(const_cast<char *>(text.data()), position, deleteLength);
-				if (UTF8IsValid(text.data(), text.size())) {
+				GetCharRange(text.data(), position, deleteLength);
+				if (UTF8IsValid(text)) {
 					// Everything is good
-					const CountWidths cw = CountCharacterWidthsUTF8(text.data(), text.size());
+					const CountWidths cw = CountCharacterWidthsUTF8(text);
 					plv->InsertCharacters(linePosition, -cw);
 				} else {
 					lineRecalculateStart = linePosition;
@@ -1133,7 +1133,7 @@ bool CellBuffer::SetUndoCollection(bool collectUndo) {
 	return collectingUndo;
 }
 
-bool CellBuffer::IsCollectingUndo() const {
+bool CellBuffer::IsCollectingUndo() const noexcept {
 	return collectingUndo;
 }
 
@@ -1154,7 +1154,7 @@ void CellBuffer::DeleteUndoHistory() {
 	uh.DeleteUndoHistory();
 }
 
-bool CellBuffer::CanUndo() const {
+bool CellBuffer::CanUndo() const noexcept {
 	return uh.CanUndo();
 }
 
@@ -1180,7 +1180,7 @@ void CellBuffer::PerformUndoStep() {
 	uh.CompletedUndoStep();
 }
 
-bool CellBuffer::CanRedo() const {
+bool CellBuffer::CanRedo() const noexcept {
 	return uh.CanRedo();
 }
 

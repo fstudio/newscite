@@ -132,7 +132,6 @@ int Scintilla_LinkLexers() {
 	LINK_LEXER(lmLiterateHaskell);
 	LINK_LEXER(lmLot);
 	LINK_LEXER(lmLout);
-	LINK_LEXER(lmLPeg);
 	LINK_LEXER(lmLua);
 	LINK_LEXER(lmMagikSF);
 	LINK_LEXER(lmMake);
@@ -195,6 +194,7 @@ int Scintilla_LinkLexers() {
 	LINK_LEXER(lmVerilog);
 	LINK_LEXER(lmVHDL);
 	LINK_LEXER(lmVisualProlog);
+	LINK_LEXER(lmX12);
 	LINK_LEXER(lmXML);
 	LINK_LEXER(lmYAML);
 

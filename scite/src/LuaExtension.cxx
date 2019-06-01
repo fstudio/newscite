@@ -4,17 +4,21 @@
 // The License.txt file describes the conditions under which this software may be distributed.
 
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <ctime>
 
 #include <string>
+#include <string_view>
 #include <vector>
+#include <chrono>
 
-#include "Scintilla.h"
+#include "ScintillaTypes.h"
+#include "ScintillaMessages.h"
+#include "ScintillaCall.h"
 
 #include "GUI.h"
-#include "ScintillaWindow.h"
 #include "StringHelpers.h"
 #include "FilePath.h"
 #include "StyleWriter.h"
@@ -45,6 +49,7 @@ extern "C" {
 
 #endif
 
+namespace SA = Scintilla::API;
 
 // A note on naming conventions:
 // I've gone back and forth on this a bit, trying different styles.
@@ -94,22 +99,22 @@ LuaExtension &LuaExtension::Instance() {
 
 // Forward declarations
 static ExtensionAPI::Pane check_pane_object(lua_State *L, int index);
-static void push_pane_object(lua_State *L, ExtensionAPI::Pane p);
+static void push_pane_object(lua_State *L, ExtensionAPI::Pane p) noexcept;
 static int iface_function_helper(lua_State *L, const IFaceFunction &func);
 
-inline bool IFaceTypeIsScriptable(IFaceType t, int index) {
+inline bool IFaceTypeIsScriptable(IFaceType t, int index) noexcept {
 	return t < iface_stringresult || (index==1 && t == iface_stringresult);
 }
 
-inline bool IFaceTypeIsNumeric(IFaceType t) {
+inline bool IFaceTypeIsNumeric(IFaceType t) noexcept {
 	return (t > iface_void && t < iface_bool);
 }
 
-inline bool IFaceFunctionIsScriptable(const IFaceFunction &f) {
+inline bool IFaceFunctionIsScriptable(const IFaceFunction &f) noexcept {
 	return IFaceTypeIsScriptable(f.paramType[0], 0) && IFaceTypeIsScriptable(f.paramType[1], 1);
 }
 
-inline bool IFacePropertyIsScriptable(const IFaceProperty &p) {
+inline bool IFacePropertyIsScriptable(const IFaceProperty &p) noexcept {
 	return (((p.valueType > iface_void) && (p.valueType <= iface_stringresult) && (p.valueType != iface_keymod)) &&
 		((p.paramType < iface_colour) || (p.paramType == iface_string) ||
 		 (p.paramType == iface_bool)) && (p.getter || p.setter));
@@ -127,7 +132,7 @@ inline void raise_error(lua_State *L, const char *errMsg=nullptr) {
 }
 
 // lua_absindex for LUA <5.1
-inline int absolute_index(lua_State *L, int index) {
+inline int absolute_index(lua_State *L, int index) noexcept {
 	if (index > LUA_REGISTRYINDEX && index < 0)
 		return lua_gettop(L) + index + 1;
 	else
@@ -196,7 +201,7 @@ static void clear_table(lua_State *L, int tableIdx, bool clearMetatable = true) 
 }
 
 // Lua 5.1's checkudata throws an error on failure, we don't want that, we want NULL
-static void *checkudata(lua_State *L, int ud, const char *tname) {
+static void *checkudata(lua_State *L, int ud, const char *tname) noexcept {
 	void *p = lua_touserdata(L, ud);
 	if (p) { // value is a userdata?
 		if (lua_getmetatable(L, ud)) { // does it have a metatable?
@@ -260,7 +265,7 @@ static int cf_scite_send(lua_State *L) {
 
 static int cf_scite_constname(lua_State *L) {
 	const int message = luaL_checkint(L, 1);
-	const char *prefix = luaL_optstring(L, 2, NULL);
+	const char *prefix = luaL_optstring(L, 2, nullptr);
 	const std::string constName = IFaceTable::GetConstantName(message, prefix);
 	if (constName.length() > 0) {
 		lua_pushstring(L, constName.c_str());
@@ -362,10 +367,10 @@ static int cf_pane_textrange(lua_State *L) {
 	const ExtensionAPI::Pane p = check_pane_object(L, 1);
 
 	if (lua_gettop(L) >= 3) {
-		const int cpMin = static_cast<int>(luaL_checknumber(L, 2));
-		const int cpMax = static_cast<int>(luaL_checknumber(L, 3));
+		const SA::Position cpMin = luaL_checkinteger(L, 2);
+		const SA::Position cpMax = luaL_checkinteger(L, 3);
 		if (cpMax >= 0) {
-			std::string range = host->Range(p, cpMin, cpMax);
+			std::string range = host->Range(p, SA::Range(cpMin, cpMax));
 			lua_pushstring(L, range.c_str());
 			return 1;
 		} else {
@@ -380,7 +385,7 @@ static int cf_pane_textrange(lua_State *L) {
 
 static int cf_pane_insert(lua_State *L) {
 	const ExtensionAPI::Pane p = check_pane_object(L, 1);
-	const int pos = luaL_checkint(L, 2);
+	const SA::Position pos = luaL_checkinteger(L, 2);
 	const char *s = luaL_checkstring(L, 3);
 	host->Insert(p, pos, s);
 	return 0;
@@ -388,8 +393,8 @@ static int cf_pane_insert(lua_State *L) {
 
 static int cf_pane_remove(lua_State *L) {
 	const ExtensionAPI::Pane p = check_pane_object(L, 1);
-	const int cpMin = static_cast<int>(luaL_checknumber(L, 2));
-	const int cpMax = static_cast<int>(luaL_checknumber(L, 3));
+	const SA::Position cpMin = luaL_checkinteger(L, 2);
+	const SA::Position cpMax = luaL_checkinteger(L, 3);
 	host->Remove(p, cpMin, cpMax);
 	return 0;
 }
@@ -397,7 +402,7 @@ static int cf_pane_remove(lua_State *L) {
 static int cf_pane_append(lua_State *L) {
 	const ExtensionAPI::Pane p = check_pane_object(L, 1);
 	const char *s = luaL_checkstring(L, 2);
-	host->Insert(p, static_cast<int>(host->Send(p, SCI_GETLENGTH, 0, 0)), s);
+	host->Insert(p, host->PaneCaller(p).Length(), s);
 	return 0;
 }
 
@@ -410,34 +415,37 @@ static int cf_pane_findtext(lua_State *L) {
 	bool hasError = (!t);
 
 	if (!hasError) {
-		Sci_TextToFind ft = {{0, 0}, nullptr, {0, 0}};
-
-		ft.lpstrText = t;
+		SA::Position rangeStart = 0;
+		SA::Position rangeEnd = 0;
 
 		const int flags = (nArgs > 2) ? luaL_checkint(L, 3) : 0;
 		hasError = (flags == 0 && lua_gettop(L) > nArgs);
 
 		if (!hasError) {
 			if (nArgs > 3) {
-				ft.chrg.cpMin = static_cast<int>(luaL_checkint(L, 4));
+				rangeStart = luaL_checkinteger(L, 4);
 				hasError = (lua_gettop(L) > nArgs);
 			}
 		}
+
+		SA::ScintillaCall &sc = host->PaneCaller(p);
 
 		if (!hasError) {
 			if (nArgs > 4) {
-				ft.chrg.cpMax = static_cast<int>(luaL_checkint(L, 5));
+				rangeEnd = luaL_checkinteger(L, 5);
 				hasError = (lua_gettop(L) > nArgs);
 			} else {
-				ft.chrg.cpMax = static_cast<long>(host->Send(p, SCI_GETLENGTH, 0, 0));
+				rangeEnd = sc.Length();
 			}
 		}
 
 		if (!hasError) {
-			const sptr_t result = host->Send(p, SCI_FINDTEXT, static_cast<uptr_t>(flags), SptrFromPointer(&ft));
-			if (result >= 0) {
-				lua_pushinteger(L, static_cast<int>(ft.chrgText.cpMin));
-				lua_pushinteger(L, static_cast<int>(ft.chrgText.cpMax));
+			sc.SetTargetRange(rangeStart, rangeEnd);
+			sc.SetSearchFlags(static_cast<SA::FindOption>(flags));
+			const SA::Range result = sc.RangeSearchInTarget(t);
+			if (result.start >= 0) {
+				lua_pushinteger(L, result.start);
+				lua_pushinteger(L, result.end);
 				return 2;
 			} else {
 				lua_pushnil(L);
@@ -459,10 +467,12 @@ static int cf_pane_findtext(lua_State *L) {
 
 struct PaneMatchObject {
 	ExtensionAPI::Pane pane;
-	int startPos;
-	int endPos;
+	SA::Range range;
 	int flags; // this is really part of the state, but is kept here for convenience
-	int endPosOrig; // has to do with preventing infinite loop on a 0-length match
+	SA::Position endPosOrig; // has to do with preventing infinite loop on a 0-length match
+	bool RangeValid() const noexcept {
+		return (range.start >= 0) && (range.end >= 0) && (range.start <= range.end);
+	}
 };
 
 static int cf_match_replace(lua_State *L) {
@@ -470,7 +480,7 @@ static int cf_match_replace(lua_State *L) {
 	if (!pmo) {
 		raise_error(L, "Self argument for match:replace() should be a pane match object.");
 		return 0;
-	} else if ((pmo->startPos < 0) || (pmo->endPos < pmo->startPos) || (pmo->endPos < 0)) {
+	} else if (!pmo->RangeValid()) {
 		raise_error(L, "Blocked attempt to use invalidated pane match object.");
 		return 0;
 	}
@@ -478,15 +488,15 @@ static int cf_match_replace(lua_State *L) {
 
 	// If an option were added to process \d back-references, it would just
 	// be an optional boolean argument, i.e. m:replace([[\1]], true), and
-	// this would just change SCI_REPLACETARGET to SCI_REPLACETARGETRE.
+	// this would just change ReplaceTarget to ReplaceTargetRE.
 	// The problem is, even if SCFIND_REGEXP was used, it's hard to know
 	// whether the back references are still valid.  So for now this is
 	// left out.
 
-	host->Send(pmo->pane, SCI_SETTARGETSTART, pmo->startPos, 0);
-	host->Send(pmo->pane, SCI_SETTARGETEND, pmo->endPos, 0);
-	host->Send(pmo->pane, SCI_REPLACETARGET, lua_strlen(L, 2), SptrFromString(replacement));
-	pmo->endPos = static_cast<int>(host->Send(pmo->pane, SCI_GETTARGETEND, 0, 0));
+	SA::ScintillaCall &sc = host->PaneCaller(pmo->pane);
+	sc.SetTarget(pmo->range);
+	sc.ReplaceTarget(lua_strlen(L, 2), replacement);
+	pmo->range.end = sc.TargetEnd();
 	return 0;
 }
 
@@ -495,7 +505,7 @@ static int cf_match_metatable_index(lua_State *L) {
 	if (!pmo) {
 		raise_error(L, "Internal error: pane match object is missing.");
 		return 0;
-	} else if ((pmo->startPos < 0) || (pmo->endPos < pmo->startPos) || (pmo->endPos < 0)) {
+	} else if (!pmo->RangeValid()) {
 		raise_error(L, "Blocked attempt to use invalidated pane match object.");
 		return 0;
 	}
@@ -504,16 +514,16 @@ static int cf_match_metatable_index(lua_State *L) {
 		const char *key = lua_tostring(L, 2);
 
 		if (0 == strcmp(key, "pos")) {
-			lua_pushinteger(L, pmo->startPos);
+			lua_pushinteger(L, pmo->range.start);
 			return 1;
 		} else if (0 == strcmp(key, "len")) {
-			lua_pushinteger(L, pmo->endPos - pmo->startPos);
+			lua_pushinteger(L, pmo->range.Length());
 			return 1;
 		} else if (0 == strcmp(key, "text")) {
 			// If the document is changed while in the match loop, this will be broken.
 			// Exception: if the changes are made exclusively through match:replace,
 			// everything will be fine.
-			std::string range = host->Range(pmo->pane, pmo->startPos, pmo->endPos);
+			const std::string range = host->Range(pmo->pane, pmo->range);
 			lua_pushstring(L, range.c_str());
 			return 1;
 		} else if (0 == strcmp(key, "replace")) {
@@ -536,11 +546,11 @@ static int cf_match_metatable_tostring(lua_State *L) {
 	if (!pmo) {
 		raise_error(L, "Internal error: pane match object is missing.");
 		return 0;
-	} else if ((pmo->startPos < 0) || (pmo->endPos < pmo->startPos) || (pmo->endPos < 0)) {
+	} else if (!pmo->RangeValid()) {
 		lua_pushliteral(L, "match(invalidated)");
 		return 1;
 	} else {
-		lua_pushfstring(L, "match{pos=%d,len=%d}", pmo->startPos, pmo->endPos - pmo->startPos);
+		lua_pushfstring(L, "match{pos=%d,len=%d}", pmo->range.start, pmo->range.Length());
 		return 1;
 	}
 }
@@ -567,14 +577,14 @@ static int cf_pane_match(lua_State *L) {
 	PaneMatchObject *pmo = static_cast<PaneMatchObject *>(lua_newuserdata(L, sizeof(PaneMatchObject)));
 	if (pmo) {
 		pmo->pane = p;
-		pmo->startPos = -1;
-		pmo->endPos = pmo->endPosOrig = 0;
+		pmo->range = SA::Range(-1, 0);
+		pmo->endPosOrig = 0;
 		pmo->flags = 0;
 		if (nargs >= 3) {
 			pmo->flags = luaL_checkint(L, 3);
 			if (nargs >= 4) {
-				pmo->endPos = pmo->endPosOrig = luaL_checkint(L, 4);
-				if (pmo->endPos < 0) {
+				pmo->range.end = pmo->endPosOrig = luaL_checkinteger(L, 4);
+				if (pmo->range.end < 0) {
 					raise_error(L, "Invalid argument 3 for <pane>:match.  Positive number or zero expected.");
 					return 0;
 				}
@@ -611,27 +621,28 @@ static int cf_pane_match_generator(lua_State *L) {
 		return 0;
 	}
 
-	if ((pmo->endPos < 0) || (pmo->endPos < pmo->startPos)) {
+	if ((pmo->range.end < 0) || (pmo->range.end < pmo->range.start)) {
 		raise_error(L, "Blocked attempt to use invalidated pane match object.");
 		return 0;
 	}
 
-	int searchPos = pmo->endPos;
-	if ((pmo->startPos == pmo->endPosOrig) && (pmo->endPos == pmo->endPosOrig)) {
+	SA::Position searchPos = pmo->range.end;
+	if ((pmo->range.start == pmo->endPosOrig) && (pmo->range.end == pmo->endPosOrig)) {
 		// prevent infinite loop on zero-length match by stepping forward
 		searchPos++;
 	}
 
-	Sci_TextToFind ft = { {0, 0}, nullptr, {0, 0} };
-	ft.chrg.cpMin = searchPos;
-	ft.chrg.cpMax = static_cast<long>(host->Send(pmo->pane, SCI_GETLENGTH, 0, 0));
-	ft.lpstrText = text;
+	SA::ScintillaCall &sc = host->PaneCaller(pmo->pane);
 
-	if (ft.chrg.cpMax > ft.chrg.cpMin) {
-		const sptr_t result = host->Send(pmo->pane, SCI_FINDTEXT, static_cast<uptr_t>(pmo->flags), SptrFromPointer(&ft));
-		if (result >= 0) {
-			pmo->startPos = static_cast<int>(ft.chrgText.cpMin);
-			pmo->endPos = pmo->endPosOrig = static_cast<int>(ft.chrgText.cpMax);
+	const SA::Range range(searchPos, sc.Length());
+
+	if (range.end > range.start) {
+		sc.SetTarget(range);
+		sc.SetSearchFlags(static_cast<SA::FindOption>(pmo->flags));
+		const SA::Range result = sc.RangeSearchInTarget(text);
+		if (result.start >= 0) {
+			pmo->range = result;
+			pmo->endPosOrig = result.end;
 			lua_pushvalue(L, 2);
 			return 1;
 		}
@@ -640,7 +651,7 @@ static int cf_pane_match_generator(lua_State *L) {
 	// One match object is used throughout the entire iteration.
 	// This means it's bad to try to save the match object for later
 	// reference.
-	pmo->startPos = pmo->endPos = pmo->endPosOrig = -1;
+	pmo->range.start = pmo->range.end = pmo->endPosOrig = -1;
 	lua_pushnil(L);
 	return 1;
 }
@@ -791,7 +802,7 @@ static bool call_function(lua_State *L, int nargs, bool ignoreFunctionReturnValu
 	return handled;
 }
 
-static bool HasNamedFunction(const char *name) {
+static bool HasNamedFunction(const char *name) noexcept {
 	bool hasFunction = false;
 	if (luaState) {
 		hasFunction = lua_getglobal(luaState, name) != LUA_TNIL;
@@ -858,7 +869,7 @@ static int iface_function_helper(lua_State *L, const IFaceFunction &func) {
 
 	int arg = 2;
 
-	sptr_t params[2] = {0, 0};
+	intptr_t params[2] = {0, 0};
 
 	std::string stringResult;
 	bool needStringResult = false;
@@ -885,18 +896,19 @@ static int iface_function_helper(lua_State *L, const IFaceFunction &func) {
 			const char *s = lua_tostring(L, arg++);
 			params[i] = SptrFromString(s ? s : "");
 		} else if (func.paramType[i] == iface_keymod) {
-			const int keycode = static_cast<int>(luaL_checknumber(L, arg++)) & 0xFFFF;
-			const int modifiers = static_cast<int>(luaL_checknumber(L, arg++)) & (SCMOD_SHIFT|SCMOD_CTRL|SCMOD_ALT);
+			const int keycode = luaL_checkint(L, arg++) & 0xFFFF;
+			const int modifiers = luaL_checkint(L, arg++) &
+					      static_cast<int>(SA::KeyMod::Shift|SA::KeyMod::Ctrl|SA::KeyMod::Alt);
 			params[i] = keycode | (modifiers<<16);
 		} else if (func.paramType[i] == iface_bool) {
 			params[i] = lua_toboolean(L, arg++);
 		} else if (IFaceTypeIsNumeric(func.paramType[i])) {
-			params[i] = static_cast<long>(luaL_checknumber(L, arg++));
+			params[i] = luaL_checkinteger(L, arg++);
 		}
 	}
 
 	if (needStringResult) {
-		const sptr_t stringResultLen = host->Send(p, func.value, params[0], 0);
+		const intptr_t stringResultLen = host->Send(p, static_cast<SA::Message>(func.value), params[0], 0);
 		if (stringResultLen > 0) {
 			// not all string result methods are guaranteed to add a null terminator
 			stringResult.assign(stringResultLen + 1, '\0');
@@ -916,10 +928,10 @@ static int iface_function_helper(lua_State *L, const IFaceFunction &func) {
 	// - numeric return type gets returned to lua as a number (following the stringresult)
 	// - other return types e.g. void get dropped.
 
-	sptr_t result = 0;
+	intptr_t result = 0;
 	try {
-		result = host->Send(p, func.value, params[0], params[1]);
-	} catch (const GUI::ScintillaFailure &sf) {
+		result = host->Send(p, static_cast<SA::Message>(func.value), params[0], params[1]);
+	} catch (const SA::Failure &sf) {
 		std::string failureExplanation;
 		failureExplanation += ">Lua: Scintilla failure ";
 		failureExplanation += StdStringFromInteger(static_cast<int>(sf.status));
@@ -927,7 +939,7 @@ static int iface_function_helper(lua_State *L, const IFaceFunction &func) {
 		failureExplanation += StdStringFromInteger(func.value);
 		failureExplanation += ".\n";
 		// Reset status before continuing
-		host->Send(p, SCI_SETSTATUS, SC_STATUS_OK, 0);
+		host->PaneCaller(p).SetStatus(SA::Status::Ok);
 		host->Trace(failureExplanation.c_str());
 	}
 
@@ -942,7 +954,7 @@ static int iface_function_helper(lua_State *L, const IFaceFunction &func) {
 		lua_pushboolean(L, static_cast<int>(result));
 		resultCount++;
 	} else if (IFaceTypeIsNumeric(func.returnType)) {
-		lua_pushinteger(L, static_cast<int>(result));
+		lua_pushinteger(L, result);
 		resultCount++;
 	}
 
@@ -1046,7 +1058,7 @@ static int push_iface_propval(lua_State *L, const char *name) {
 			const ExtensionAPI::Pane p = check_pane_object(L, 1);
 
 			if (prop.getter) {
-				if (host->Send(p, prop.getter, 1, 0)) {
+				if (host->Send(p, static_cast<SA::Message>(prop.getter), 1, 0)) {
 					lua_pushnil(L);
 					return 1;
 				} else {
@@ -1150,7 +1162,7 @@ static int cf_pane_metatable_newindex(lua_State *L) {
 	return 0;
 }
 
-void push_pane_object(lua_State *L, ExtensionAPI::Pane p) {
+void push_pane_object(lua_State *L, ExtensionAPI::Pane p) noexcept {
 	*static_cast<ExtensionAPI::Pane *>(lua_newuserdata(L, sizeof(p))) = p;
 	if (luaL_newmetatable(L, "SciTE_MT_Pane")) {
 		lua_pushcfunction(L, cf_pane_metatable_index);
@@ -1233,7 +1245,7 @@ static bool CheckStartupScript() {
 	return startupScript.length() > 0;
 }
 
-static void PublishGlobalBufferData() {
+static void PublishGlobalBufferData() noexcept {
 // release 1.62
 // A Lua table called 'buffer' is associated with each buffer
 // and can be used to maintain buffer-specific state.
@@ -1708,83 +1720,83 @@ bool LuaExtension::OnSavePointLeft() {
 
 // Similar to StyleContext class in Scintilla
 struct StylingContext {
-	unsigned int startPos;
-	int lengthDoc;
+	SA::Position startPos;
+	SA::Position lengthDoc;
 	int initStyle;
 	StyleWriter *styler;
 
-	unsigned int endPos;
-	unsigned int endDoc;
+	SA::Position endPos;
+	SA::Position endDoc;
 
-	unsigned int currentPos;
+	SA::Position currentPos;
 	bool atLineStart;
 	bool atLineEnd;
 	int state;
 
 	char cursor[3][8];
-	int cursorPos;
+	SA::Position cursorPos;
 	int codePage;
-	int lenCurrent;
-	int lenNext;
+	SA::Position lenCurrent;
+	SA::Position lenNext;
 
-	static StylingContext *Context(lua_State *L) {
+	static StylingContext *Context(lua_State *L) noexcept {
 		return static_cast<StylingContext *>(
 			       lua_touserdata(L, lua_upvalueindex(1)));
 	}
 
 	void Colourize() {
-		int end = currentPos - 1;
-		if (end >= static_cast<int>(endDoc))
-			end = static_cast<int>(endDoc)-1;
+		SA::Position end = currentPos - 1;
+		if (end >= endDoc)
+			end = endDoc - 1;
 		styler->ColourTo(end, state);
 	}
 
 	static int Line(lua_State *L) {
 		StylingContext *context = Context(L);
-		const int position = luaL_checkint(L, 2);
+		const SA::Position position = luaL_checkinteger(L, 2);
 		lua_pushinteger(L, context->styler->GetLine(position));
 		return 1;
 	}
 
 	static int CharAt(lua_State *L) {
 		StylingContext *context = Context(L);
-		const int position = luaL_checkint(L, 2);
+		const SA::Position position = luaL_checkinteger(L, 2);
 		lua_pushinteger(L, context->styler->SafeGetCharAt(position));
 		return 1;
 	}
 
 	static int StyleAt(lua_State *L) {
 		StylingContext *context = Context(L);
-		const int position = luaL_checkint(L, 2);
+		const SA::Position position = luaL_checkinteger(L, 2);
 		lua_pushinteger(L, context->styler->StyleAt(position));
 		return 1;
 	}
 
 	static int LevelAt(lua_State *L) {
 		StylingContext *context = Context(L);
-		const int line = luaL_checkint(L, 2);
-		lua_pushinteger(L, context->styler->LevelAt(line));
+		const SA::Line line = luaL_checkinteger(L, 2);
+		lua_pushinteger(L, static_cast<int>(context->styler->LevelAt(line)));
 		return 1;
 	}
 
 	static int SetLevelAt(lua_State *L) {
 		StylingContext *context = Context(L);
-		const int line = luaL_checkint(L, 2);
+		const SA::Line line = luaL_checkinteger(L, 2);
 		const int level = luaL_checkint(L, 3);
-		context->styler->SetLevel(line, level);
+		context->styler->SetLevel(line, static_cast<SA::FoldLevel>(level));
 		return 0;
 	}
 
 	static int LineState(lua_State *L) {
 		StylingContext *context = Context(L);
-		const int line = luaL_checkint(L, 2);
+		const SA::Line line = luaL_checkinteger(L, 2);
 		lua_pushinteger(L, context->styler->GetLineState(line));
 		return 1;
 	}
 
 	static int SetLineState(lua_State *L) {
 		StylingContext *context = Context(L);
-		const int line = luaL_checkint(L, 2);
+		const SA::Line line = luaL_checkinteger(L, 2);
 		const int stateOfLine = luaL_checkint(L, 3);
 		context->styler->SetLineState(line, stateOfLine);
 		return 0;
@@ -1794,13 +1806,13 @@ struct StylingContext {
 	void GetNextChar() {
 		lenCurrent = lenNext;
 		lenNext = 1;
-		const int nextPos = currentPos + lenCurrent;
-		unsigned char byteNext = static_cast<unsigned char>(styler->SafeGetCharAt(nextPos));
+		const SA::Position nextPos = currentPos + lenCurrent;
+		unsigned char byteNext = styler->SafeGetCharAt(nextPos);
 		unsigned int nextSlot = (cursorPos + 1) % 3;
 		memcpy(cursor[nextSlot], "\0\0\0\0\0\0\0\0", 8);
 		cursor[nextSlot][0] = byteNext;
 		if (codePage) {
-			if (codePage == SC_CP_UTF8) {
+			if (codePage == SA::CpUtf8) {
 				if (byteNext >= 0x80) {
 					cursor[nextSlot][1] = styler->SafeGetCharAt(nextPos+1);
 					lenNext = 2;
@@ -1830,7 +1842,7 @@ struct StylingContext {
 			    (currentPos >= endPos);
 	}
 
-	void StartStyling(unsigned int startPos_, unsigned int length, int initStyle_) {
+	void StartStyling(SA::Position startPos_, SA::Position length, int initStyle_) {
 		endDoc = styler->Length();
 		endPos = startPos_ + length;
 		if (endPos == endDoc)
@@ -1861,8 +1873,8 @@ struct StylingContext {
 
 	static int StartStyling(lua_State *L) {
 		StylingContext *context = Context(L);
-		const unsigned int startPosStyle = luaL_checkint(L, 2);
-		const unsigned int lengthStyle = luaL_checkint(L, 3);
+		const SA::Position startPosStyle = luaL_checkinteger(L, 2);
+		const SA::Position lengthStyle = luaL_checkinteger(L, 3);
 		const int initialStyle = luaL_checkint(L, 4);
 		context->StartStyling(startPosStyle, lengthStyle, initialStyle);
 		return 0;
@@ -1960,13 +1972,13 @@ struct StylingContext {
 
 	static int Token(lua_State *L) {
 		StylingContext *context = Context(L);
-		const int start = context->styler->GetStartSegment();
-		const int end = context->currentPos - 1;
-		int len = end - start + 1;
+		const SA::Position start = context->styler->GetStartSegment();
+		const SA::Position end = context->currentPos - 1;
+		SA::Position len = end - start + 1;
 		if (len <= 0)
 			len = 1;
 		std::string sReturn(len, '\0');
-		for (int i = 0; i < len; i++) {
+		for (SA::Position i = 0; i < len; i++) {
 			sReturn[i] = context->styler->SafeGetCharAt(start + i);
 		}
 		lua_pushstring(L, sReturn.c_str());
@@ -1974,7 +1986,7 @@ struct StylingContext {
 	}
 
 	bool Match(const char *s) {
-		for (int n=0; *s; n++) {
+		for (SA::Position n=0; *s; n++) {
 			if (*s != styler->SafeGetCharAt(currentPos+n))
 				return false;
 			s++;
@@ -1989,14 +2001,14 @@ struct StylingContext {
 		return 1;
 	}
 
-	void PushMethod(lua_State *L, lua_CFunction fn, const char *name) {
+	void PushMethod(lua_State *L, lua_CFunction fn, const char *name) noexcept {
 		lua_pushlightuserdata(L, this);
 		lua_pushcclosure(L, fn, 1);
 		lua_setfield(luaState, -2, name);
 	}
 };
 
-bool LuaExtension::OnStyle(unsigned int startPos, int lengthDoc, int initStyle, StyleWriter *styler) {
+bool LuaExtension::OnStyle(SA::Position startPos, SA::Position lengthDoc, int initStyle, StyleWriter *styler) {
 	bool handled = false;
 	if (luaState) {
 		if (lua_getglobal(luaState, "OnStyle") != LUA_TNIL) {
@@ -2006,7 +2018,7 @@ bool LuaExtension::OnStyle(unsigned int startPos, int lengthDoc, int initStyle, 
 			sc.lengthDoc = lengthDoc;
 			sc.initStyle = initStyle;
 			sc.styler = styler;
-			sc.codePage = static_cast<int>(host->Send(ExtensionAPI::paneEditor, SCI_GETCODEPAGE));
+			sc.codePage = host->PaneCaller(ExtensionAPI::paneEditor).CodePage();
 
 			lua_newtable(luaState);
 
@@ -2076,14 +2088,22 @@ bool LuaExtension::OnUserListSelection(int listType, const char *selection) {
 	return CallNamedFunction("OnUserListSelection", listType, selection);
 }
 
+namespace {
+
+bool CheckModifiers(int modifiers, SA::KeyMod mod) noexcept {
+	return (static_cast<int>(mod) & modifiers) != 0;
+}
+
+}
+
 bool LuaExtension::OnKey(int keyval, int modifiers) {
 	bool handled = false;
 	if (luaState) {
 		if (lua_getglobal(luaState, "OnKey") != LUA_TNIL) {
 			lua_pushinteger(luaState, keyval);
-			lua_pushboolean(luaState, (SCMOD_SHIFT & modifiers) != 0 ? 1 : 0); // shift/lock
-			lua_pushboolean(luaState, (SCMOD_CTRL  & modifiers) != 0 ? 1 : 0); // control
-			lua_pushboolean(luaState, (SCMOD_ALT   & modifiers) != 0 ? 1 : 0); // alt
+			lua_pushboolean(luaState, CheckModifiers(modifiers, SA::KeyMod::Shift)); // shift/lock
+			lua_pushboolean(luaState, CheckModifiers(modifiers, SA::KeyMod::Ctrl)); // control
+			lua_pushboolean(luaState, CheckModifiers(modifiers, SA::KeyMod::Alt)); // alt
 			handled = call_function(luaState, 4);
 		} else {
 			lua_pop(luaState, 1);
@@ -2092,7 +2112,7 @@ bool LuaExtension::OnKey(int keyval, int modifiers) {
 	return handled;
 }
 
-bool LuaExtension::OnDwellStart(int pos, const char *word) {
+bool LuaExtension::OnDwellStart(SA::Position pos, const char *word) {
 	return CallNamedFunction("OnDwellStart", pos, word);
 }
 

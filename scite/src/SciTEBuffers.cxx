@@ -7,20 +7,26 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <cstdint>
 #include <cassert>
 #include <cstring>
 #include <cstdio>
 #include <ctime>
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <set>
 #include <algorithm>
 #include <memory>
+#include <chrono>
 
 #include "ILoader.h"
-#include "Scintilla.h"
+
+#include "ScintillaTypes.h"
+#include "ScintillaCall.h"
+
 #include "SciLexer.h"
 
 #include "GUI.h"
@@ -44,7 +50,7 @@
 
 const GUI::gui_char defaultSessionFileName[] = GUI_TEXT("SciTE.session");
 
-void Buffer::DocumentModified() {
+void Buffer::DocumentModified() noexcept {
 	documentModTime = time(nullptr);
 }
 
@@ -53,7 +59,7 @@ bool Buffer::NeedsSave(int delayBeforeSave) const {
 	return now && documentModTime && isDirty && !pFileWorker && (now-documentModTime > delayBeforeSave) && !file.IsUntitled() && !failedSave;
 }
 
-void Buffer::CompleteLoading() {
+void Buffer::CompleteLoading() noexcept {
 	lifeState = open;
 	if (pFileWorker && pFileWorker->IsLoading()) {
 		delete pFileWorker;
@@ -115,7 +121,7 @@ int BufferList::Add() {
 }
 
 int BufferList::GetDocumentByWorker(const FileWorker *pFileWorker) const {
-	for (int i = 0;i < length;i++) {
+	for (int i = 0; i < length; i++) {
 		if (buffers[i].pFileWorker == pFileWorker) {
 			return i;
 		}
@@ -127,7 +133,7 @@ int BufferList::GetDocumentByName(const FilePath &filename, bool excludeCurrent)
 	if (!filename.IsSet()) {
 		return -1;
 	}
-	for (int i = 0;i < length;i++) {
+	for (int i = 0; i < length; i++) {
 		if ((!excludeCurrent || i != current) && buffers[i].file.SameNameAs(filename)) {
 			return i;
 		}
@@ -150,9 +156,9 @@ void BufferList::RemoveInvisible(int index) {
 
 void BufferList::RemoveCurrent() {
 	// Delete and move up to fill gap but ensure doc pointer is saved.
-	const sptr_t currentDoc = buffers[current].doc;
+	void *currentDoc = buffers[current].doc;
 	buffers[current].CompleteLoading();
-	for (int i = current;i < length - 1;i++) {
+	for (int i = current; i < length - 1; i++) {
 		buffers[i] = buffers[i + 1];
 	}
 	buffers[length - 1].doc = currentDoc;
@@ -237,8 +243,8 @@ void BufferList::CommitStackSelection() {
 void BufferList::ShiftTo(int indexFrom, int indexTo) {
 	// shift buffer to new place in buffers array
 	if (indexFrom == indexTo ||
-		indexFrom < 0 || indexFrom >= length ||
-		indexTo < 0 || indexTo >= length) return;
+			indexFrom < 0 || indexFrom >= length ||
+			indexTo < 0 || indexTo >= length) return;
 	int step = (indexFrom > indexTo) ? -1 : 1;
 	Buffer tmp = buffers[indexFrom];
 	int i;
@@ -261,8 +267,8 @@ void BufferList::ShiftTo(int indexFrom, int indexTo) {
 void BufferList::Swap(int indexA, int indexB) {
 	// shift buffer to new place in buffers array
 	if (indexA == indexB ||
-		indexA < 0 || indexA >= length ||
-		indexB < 0 || indexB >= length) return;
+			indexA < 0 || indexA >= length ||
+			indexB < 0 || indexB >= length) return;
 	Buffer tmp = buffers[indexA];
 	buffers[indexA] = buffers[indexB];
 	buffers[indexB] = tmp;
@@ -276,21 +282,17 @@ void BufferList::Swap(int indexA, int indexB) {
 	}
 }
 
-bool BufferList::SingleBuffer() const {
+bool BufferList::SingleBuffer() const noexcept {
 	return size() == 1;
 }
 
 BackgroundActivities BufferList::CountBackgroundActivities() const {
-	BackgroundActivities bg;
-	bg.loaders = 0;
-	bg.storers = 0;
-	bg.totalWork = 0;
-	bg.totalProgress = 0;
-	for (int i = 0;i < length;i++) {
+	BackgroundActivities bg {};
+	for (int i = 0; i < length; i++) {
 		if (buffers[i].pFileWorker) {
 			if (!buffers[i].pFileWorker->FinishedJob()) {
 				if (!buffers[i].pFileWorker->IsLoading()) {
-					const FileStorer *fstorer = static_cast<FileStorer*>(buffers[i].pFileWorker);
+					const FileStorer *fstorer = static_cast<FileStorer *>(buffers[i].pFileWorker);
 					if (!fstorer->visibleProgress)
 						continue;
 				}
@@ -352,39 +354,39 @@ void BufferList::FinishedFuture(int index, Buffer::FutureDo fd) {
 	}
 }
 
-sptr_t SciTEBase::GetDocumentAt(int index) {
+void *SciTEBase::GetDocumentAt(int index) {
 	if (index < 0 || index >= buffers.size()) {
-		return 0;
+		return nullptr;
 	}
-	if (buffers.buffers[index].doc == 0) {
+	if (buffers.buffers[index].doc == nullptr) {
 		// Create a new document buffer
-		buffers.buffers[index].doc = wEditor.CallReturnPointer(SCI_CREATEDOCUMENT, 0, 0);
+		buffers.buffers[index].doc = wEditor.CreateDocument(0, SA::DocumentOption::Default);
 	}
 	return buffers.buffers[index].doc;
 }
 
-void SciTEBase::SwitchDocumentAt(int index, sptr_t pdoc) {
+void SciTEBase::SwitchDocumentAt(int index, void *pdoc) {
 	if (index < 0 || index >= buffers.size()) {
 		return;
 	}
-	const sptr_t pdocOld = buffers.buffers[index].doc;
+	void *pdocOld = buffers.buffers[index].doc;
 	buffers.buffers[index].doc = pdoc;
 	if (pdocOld) {
-		wEditor.Call(SCI_RELEASEDOCUMENT, 0, pdocOld);
+		wEditor.ReleaseDocument(pdocOld);
 	}
 	if (index == buffers.Current()) {
-		wEditor.Call(SCI_SETDOCPOINTER, 0, buffers.buffers[index].doc);
+		wEditor.SetDocPointer(buffers.buffers[index].doc);
 	}
 }
 
 void SciTEBase::SetDocumentAt(int index, bool updateStack) {
 	const int currentbuf = buffers.Current();
 
-	if (	index < 0 ||
-	        index >= buffers.length ||
-	        index == currentbuf ||
-	        currentbuf < 0 ||
-	        currentbuf >= buffers.length) {
+	if (index < 0 ||
+			index >= buffers.length ||
+			index == currentbuf ||
+			currentbuf < 0 ||
+			currentbuf >= buffers.length) {
 		return;
 	}
 	UpdateBuffersCurrent();
@@ -405,7 +407,7 @@ void SciTEBase::SetDocumentAt(int index, bool updateStack) {
 	SetFileName(bufferNext.file);
 	propsDiscovered = bufferNext.props;
 	propsDiscovered.superPS = &propsLocal;
-	wEditor.Call(SCI_SETDOCPOINTER, 0, GetDocumentAt(buffers.Current()));
+	wEditor.SetDocPointer(GetDocumentAt(buffers.Current()));
 	const bool restoreBookmarks = bufferNext.lifeState == Buffer::readAll;
 	PerformDeferredTasks();
 	if (bufferNext.lifeState == Buffer::readAll) {
@@ -424,7 +426,7 @@ void SciTEBase::SetDocumentAt(int index, bool updateStack) {
 	if (restoreBookmarks) {
 		// Restoring a session does not restore the scroll position
 		// so make the selection visible.
-		wEditor.Call(SCI_SCROLLCARET);
+		wEditor.ScrollCaret();
 	}
 
 	SetBuffersMenu();
@@ -443,18 +445,18 @@ void SciTEBase::UpdateBuffersCurrent() {
 		Buffer &bufferCurrent = buffers.buffers[currentbuf];
 		bufferCurrent.file.Set(filePath);
 		if (bufferCurrent.lifeState != Buffer::reading && bufferCurrent.lifeState != Buffer::readAll) {
-			bufferCurrent.file.selection.position = wEditor.Call(SCI_GETCURRENTPOS);
-			bufferCurrent.file.selection.anchor = wEditor.Call(SCI_GETANCHOR);
+			bufferCurrent.file.selection.position = wEditor.CurrentPos();
+			bufferCurrent.file.selection.anchor = wEditor.Anchor();
 			bufferCurrent.file.scrollPosition = GetCurrentScrollPosition();
 
 			// Retrieve fold state and store in buffer state info
 
-			std::vector<int> *f = &bufferCurrent.foldState;
+			std::vector<SA::Line> *f = &bufferCurrent.foldState;
 			f->clear();
 
 			if (props.GetInt("fold")) {
-				for (int line = 0; ; line++) {
-					const int lineNext = wEditor.Call(SCI_CONTRACTEDFOLDNEXT, line);
+				for (SA::Line line = 0; ; line++) {
+					const SA::Line lineNext = wEditor.ContractedFoldNext(line);
 					if ((line < 0) || (lineNext < line))
 						break;
 					line = lineNext;
@@ -464,8 +466,8 @@ void SciTEBase::UpdateBuffersCurrent() {
 
 			if (props.GetInt("session.bookmarks")) {
 				buffers.buffers[buffers.Current()].bookmarks.clear();
-				int lineBookmark = -1;
-				while ((lineBookmark = wEditor.Call(SCI_MARKERNEXT, lineBookmark + 1, 1 << markerBookmark)) >= 0) {
+				SA::Line lineBookmark = -1;
+				while ((lineBookmark = wEditor.MarkerNext(lineBookmark + 1, 1 << markerBookmark)) >= 0) {
 					bufferCurrent.bookmarks.push_back(lineBookmark);
 				}
 			}
@@ -473,7 +475,7 @@ void SciTEBase::UpdateBuffersCurrent() {
 	}
 }
 
-bool SciTEBase::IsBufferAvailable() const {
+bool SciTEBase::IsBufferAvailable() const noexcept {
 	return buffers.size() > 1 && buffers.length < buffers.size();
 }
 
@@ -493,13 +495,13 @@ bool SciTEBase::CanMakeRoom(bool maySaveIfDirty) {
 }
 
 void SciTEBase::ClearDocument() {
-	wEditor.Call(SCI_SETREADONLY, 0);
-	wEditor.Call(SCI_SETUNDOCOLLECTION, 0);
-	wEditor.Call(SCI_CLEARALL);
-	wEditor.Call(SCI_EMPTYUNDOBUFFER);
-	wEditor.Call(SCI_SETUNDOCOLLECTION, 1);
-	wEditor.Call(SCI_SETSAVEPOINT);
-	wEditor.Call(SCI_SETREADONLY, CurrentBuffer()->isReadOnly);
+	wEditor.SetReadOnly(false);
+	wEditor.SetUndoCollection(false);
+	wEditor.ClearAll();
+	wEditor.EmptyUndoBuffer();
+	wEditor.SetUndoCollection(true);
+	wEditor.SetSavePoint();
+	wEditor.SetReadOnly(CurrentBuffer()->isReadOnly);
 }
 
 void SciTEBase::CreateBuffers() {
@@ -517,8 +519,8 @@ void SciTEBase::InitialiseBuffers() {
 	if (!buffers.initialised) {
 		buffers.initialised = true;
 		// First document is the default from creation of control
-		buffers.buffers[0].doc = wEditor.CallReturnPointer(SCI_GETDOCPOINTER, 0, 0);
-		wEditor.Call(SCI_ADDREFDOCUMENT, 0, buffers.buffers[0].doc); // We own this reference
+		buffers.buffers[0].doc = wEditor.DocPointer();
+		wEditor.AddRefDocument(buffers.buffers[0].doc); // We own this reference
 		if (buffers.size() == 1) {
 			// Single buffer mode, delete the Buffers main menu entry
 			DestroyMenuItem(menuBuffers, 0);
@@ -564,7 +566,7 @@ void SciTEBase::LoadSessionFile(const GUI::gui_char *sessionName) {
 }
 
 void SciTEBase::RestoreRecentMenu() {
-	const SelectedRange sr(0,0);
+	const SelectedRange sr(0, 0);
 
 	DeleteFileStackMenu();
 
@@ -581,12 +583,12 @@ namespace {
 
 // Line numbers are 0-based inside SciTE but are saved in session files as 1-based.
 
-std::vector<int> LinesFromString(const std::string &s) {
-	std::vector<int> result;
+std::vector<SA::Line> LinesFromString(const std::string &s) {
+	std::vector<SA::Line> result;
 	if (s.length()) {
 		size_t start = 0;
 		for (;;) {
-			const int line = atoi(s.c_str() + start) - 1;
+			const SA::Line line = IntegerFromText(s.c_str() + start) - 1;
 			result.push_back(line);
 			const size_t posComma = s.find(',', start);
 			if (posComma == std::string::npos)
@@ -597,13 +599,13 @@ std::vector<int> LinesFromString(const std::string &s) {
 	return result;
 }
 
-std::string StringFromLines(const std::vector<int> &lines) {
+std::string StringFromLines(const std::vector<SA::Line> &lines) {
 	std::string result;
-	for (const int line : lines) {
+	for (const SA::Line line : lines) {
 		if (result.length()) {
 			result.append(",");
 		}
-		std::string sLine = StdStringFromInteger(line + 1);
+		std::string sLine = std::to_string(line + 1);
 		result.append(sLine);
 	}
 	return result;
@@ -657,11 +659,11 @@ void SciTEBase::RestoreSession() {
 			session.pathActive = bufferState.file;
 
 		propKey = IndexPropKey("buffer", i, "scroll");
-		const int scroll = propsSession.GetInt(propKey.c_str());
+		const SA::Line scroll = propsSession.GetInteger(propKey.c_str());
 		bufferState.file.scrollPosition = scroll;
 
 		propKey = IndexPropKey("buffer", i, "position");
-		const int pos = propsSession.GetInt(propKey.c_str());
+		const SA::Position pos = propsSession.GetInteger(propKey.c_str());
 
 		bufferState.file.selection.anchor = pos - 1;
 		bufferState.file.selection.position = bufferState.file.selection.anchor;
@@ -673,7 +675,7 @@ void SciTEBase::RestoreSession() {
 		}
 
 		if (props.GetInt("fold") && !props.GetInt("fold.on.open") &&
-			props.GetInt("session.folds")) {
+				props.GetInt("session.folds")) {
 			propKey = IndexPropKey("buffer", i, "folds");
 			propStr = propsSession.GetString(propKey.c_str());
 			bufferState.foldState = LinesFromString(propStr);
@@ -760,13 +762,15 @@ void SciTEBase::SaveSessionFile(const GUI::gui_char *sessionName) {
 				std::string propKey = IndexPropKey("buffer", i, "path");
 				fprintf(sessionFile, "\n%s=%s\n", propKey.c_str(), buff.file.AsUTF8().c_str());
 
-				const int pos = buff.file.selection.position + 1;
+				const SA::Position pos = buff.file.selection.position + 1;
+				const std::string sPos = std::to_string(pos);
 				propKey = IndexPropKey("buffer", i, "position");
-				fprintf(sessionFile, "%s=%d\n", propKey.c_str(), pos);
+				fprintf(sessionFile, "%s=%s\n", propKey.c_str(), sPos.c_str());
 
-				const int scroll = buff.file.scrollPosition;
+				const SA::Line scroll = buff.file.scrollPosition;
+				const std::string sScroll = std::to_string(scroll);
 				propKey = IndexPropKey("buffer", i, "scroll");
-				fprintf(sessionFile, "%s=%d\n", propKey.c_str(), scroll);
+				fprintf(sessionFile, "%s=%s\n", propKey.c_str(), sScroll.c_str());
 
 				if (i == curr) {
 					propKey = IndexPropKey("buffer", i, "current");
@@ -809,36 +813,36 @@ void SciTEBase::SetIndentSettings() {
 	// Either set the settings related to the extension or the default ones
 	std::string fileNameForExtension = ExtensionFileName();
 	std::string useTabsChars = props.GetNewExpandString("use.tabs.",
-	        fileNameForExtension.c_str());
+				   fileNameForExtension.c_str());
 	if (useTabsChars.length() != 0) {
-		wEditor.Call(SCI_SETUSETABS, atoi(useTabsChars.c_str()));
+		wEditor.SetUseTabs(atoi(useTabsChars.c_str()));
 	} else {
-		wEditor.Call(SCI_SETUSETABS, useTabs);
+		wEditor.SetUseTabs(useTabs);
 	}
 	std::string tabSizeForExt = props.GetNewExpandString("tab.size.",
-	        fileNameForExtension.c_str());
+				    fileNameForExtension.c_str());
 	if (tabSizeForExt.length() != 0) {
-		wEditor.Call(SCI_SETTABWIDTH, atoi(tabSizeForExt.c_str()));
+		wEditor.SetTabWidth(atoi(tabSizeForExt.c_str()));
 	} else if (tabSize != 0) {
-		wEditor.Call(SCI_SETTABWIDTH, tabSize);
+		wEditor.SetTabWidth(tabSize);
 	}
 	std::string indentSizeForExt = props.GetNewExpandString("indent.size.",
-	        fileNameForExtension.c_str());
+				       fileNameForExtension.c_str());
 	if (indentSizeForExt.length() != 0) {
-		wEditor.Call(SCI_SETINDENT, atoi(indentSizeForExt.c_str()));
+		wEditor.SetIndent(atoi(indentSizeForExt.c_str()));
 	} else {
-		wEditor.Call(SCI_SETINDENT, indentSize);
+		wEditor.SetIndent(indentSize);
 	}
 }
 
 void SciTEBase::SetEol() {
-	std::string eol_mode = props.GetString("eol.mode");
-	if (eol_mode == "LF") {
-		wEditor.Call(SCI_SETEOLMODE, SC_EOL_LF);
-	} else if (eol_mode == "CR") {
-		wEditor.Call(SCI_SETEOLMODE, SC_EOL_CR);
-	} else if (eol_mode == "CRLF") {
-		wEditor.Call(SCI_SETEOLMODE, SC_EOL_CRLF);
+	std::string eolMode = props.GetString("eol.mode");
+	if (eolMode == "LF") {
+		wEditor.SetEOLMode(SA::EndOfLine::Lf);
+	} else if (eolMode == "CR") {
+		wEditor.SetEOLMode(SA::EndOfLine::Cr);
+	} else if (eolMode == "CRLF") {
+		wEditor.SetEOLMode(SA::EndOfLine::CrLf);
 	}
 }
 
@@ -855,17 +859,17 @@ void SciTEBase::New() {
 	// If the current buffer is the initial untitled, clean buffer then overwrite it,
 	// otherwise add a new buffer.
 	if ((buffers.length > 1) ||
-	        (buffers.Current() != 0) ||
-	        (buffers.buffers[0].isDirty) ||
-	        (!buffers.buffers[0].file.IsUntitled())) {
+			(buffers.Current() != 0) ||
+			(buffers.buffers[0].isDirty) ||
+			(!buffers.buffers[0].file.IsUntitled())) {
 		if (buffers.size() == buffers.length) {
 			Close(false, false, true);
 		}
 		buffers.SetCurrent(buffers.Add());
 	}
 
-	const sptr_t doc = GetDocumentAt(buffers.Current());
-	wEditor.Call(SCI_SETDOCPOINTER, 0, doc);
+	void *doc = GetDocumentAt(buffers.Current());
+	wEditor.SetDocPointer(doc);
 
 	FilePath curDirectory(filePath.Directory());
 	filePath.Set(curDirectory, GUI_TEXT(""));
@@ -891,20 +895,20 @@ void SciTEBase::RestoreState(const Buffer &buffer, bool restoreBookmarks) {
 	ReadProperties();
 	if (CurrentBuffer()->unicodeMode != uni8Bit) {
 		// Override the code page if Unicode
-		codePage = SC_CP_UTF8;
-		wEditor.Call(SCI_SETCODEPAGE, codePage);
+		codePage = SA::CpUtf8;
+		wEditor.SetCodePage(codePage);
 	}
 
 	// check to see whether there is saved fold state, restore
 	if (!buffer.foldState.empty()) {
-		wEditor.Call(SCI_COLOURISE, 0, -1);
-		for (const int fold : buffer.foldState) {
-			wEditor.Call(SCI_TOGGLEFOLD, fold);
+		wEditor.ColouriseAll();
+		for (const SA::Line fold : buffer.foldState) {
+			wEditor.ToggleFold(fold);
 		}
 	}
 	if (restoreBookmarks) {
-		for (const int bookmark : buffer.bookmarks) {
-			wEditor.Call(SCI_MARKERADD, bookmark, markerBookmark);
+		for (const SA::Line bookmark : buffer.bookmarks) {
+			wEditor.MarkerAdd(bookmark, markerBookmark);
 		}
 	}
 }
@@ -947,7 +951,7 @@ void SciTEBase::Close(bool updateUI, bool loadingSession, bool makingRoomForNew)
 				if (buffers.lengthVisible == 0)
 					New();
 			} else {
-				wEditor.Call(SCI_SETREADONLY, 0);
+				wEditor.SetReadOnly(false);
 				ClearDocument();
 				buffers.RemoveCurrent();
 			}
@@ -962,7 +966,7 @@ void SciTEBase::Close(bool updateUI, bool loadingSession, bool makingRoomForNew)
 			filePath = bufferNext.file;
 		propsDiscovered = bufferNext.props;
 		propsDiscovered.superPS = &propsLocal;
-		wEditor.Call(SCI_SETDOCPOINTER, 0, GetDocumentAt(buffers.Current()));
+		wEditor.SetDocPointer(GetDocumentAt(buffers.Current()));
 		PerformDeferredTasks();
 		if (bufferNext.lifeState == Buffer::readAll) {
 			//restoreBookmarks = true;
@@ -971,7 +975,7 @@ void SciTEBase::Close(bool updateUI, bool loadingSession, bool makingRoomForNew)
 				extender->OnOpen(filePath.AsUTF8().c_str());
 		}
 		if (closingLast) {
-			wEditor.Call(SCI_SETREADONLY, 0);
+			wEditor.SetReadOnly(false);
 			ClearDocument();
 		}
 		if (updateUI) {
@@ -1126,8 +1130,8 @@ static void EscapeFilePathsForMenu(GUI::gui_string &path) {
 
 void SciTEBase::SetBuffersMenu() {
 	if (buffers.size() <= 1) {
-        DestroyMenuItem(menuBuffers, IDM_BUFFERSEP);
-    }
+		DestroyMenuItem(menuBuffers, IDM_BUFFERSEP);
+	}
 	RemoveAllTabs();
 
 	int pos;
@@ -1256,7 +1260,7 @@ bool SciTEBase::AddFileToBuffer(const BufferState &bufferState) {
 					// File was opened synchronously
 					RestoreState(buffers.buffers[iBuffer], true);
 					DisplayAround(buffers.buffers[iBuffer].file);
-					wEditor.Call(SCI_SCROLLCARET);
+					wEditor.ScrollCaret();
 				}
 			}
 		}
@@ -1305,13 +1309,13 @@ RecentFile SciTEBase::GetFilePosition() {
 }
 
 void SciTEBase::DisplayAround(const RecentFile &rf) {
-	if ((rf.selection.position != INVALID_POSITION) && (rf.selection.anchor != INVALID_POSITION)) {
+	if ((rf.selection.position != SA::InvalidPosition) && (rf.selection.anchor != SA::InvalidPosition)) {
 		SetSelection(rf.selection.anchor, rf.selection.position);
 
-		const int curTop = wEditor.Call(SCI_GETFIRSTVISIBLELINE);
-		const int lineTop = wEditor.Call(SCI_VISIBLEFROMDOCLINE, rf.scrollPosition);
-		wEditor.Call(SCI_LINESCROLL, 0, lineTop - curTop);
-		wEditor.Call(SCI_CHOOSECARETX, 0, 0);
+		const SA::Line curTop = wEditor.FirstVisibleLine();
+		const SA::Line lineTop = wEditor.VisibleFromDocLine(rf.scrollPosition);
+		wEditor.LineScroll(0, lineTop - curTop);
+		wEditor.ChooseCaretX();
 	}
 }
 
@@ -1322,7 +1326,7 @@ void SciTEBase::DisplayAround(const RecentFile &rf) {
 
 void SciTEBase::StackMenuNext() {
 	DeleteFileStackMenu();
-	for (int stackPos = fileStackMax - 1; stackPos >= 0;stackPos--) {
+	for (int stackPos = fileStackMax - 1; stackPos >= 0; stackPos--) {
 		if (recentFileStack[stackPos].IsSet()) {
 			SetFileStackMenu();
 			StackMenu(stackPos);
@@ -1395,7 +1399,7 @@ void SciTEBase::RemoveToolsMenu() {
 }
 
 void SciTEBase::SetMenuItemLocalised(int menuNumber, int position, int itemID,
-        const char *text, const char *mnemonic) {
+				     const char *text, const char *mnemonic) {
 	GUI::gui_string localised = localiser.Text(text);
 	SetMenuItem(menuNumber, position, itemID, localised.c_str(), GUI::StringFromUTF8(mnemonic).c_str());
 }
@@ -1437,7 +1441,7 @@ void SciTEBase::SetToolsMenu() {
 				sMnemonic += StdStringFromInteger(item);
 			}
 			SetMenuItemLocalised(menuTools, menuPos, itemID, sMenuItem.c_str(),
-				sMnemonic.length() ? sMnemonic.c_str() : nullptr);
+					     sMnemonic.length() ? sMnemonic.c_str() : nullptr);
 			menuPos++;
 		}
 	}
@@ -1451,13 +1455,13 @@ void SciTEBase::SetToolsMenu() {
 	if (macrosEnabled) {
 		SetMenuItem(menuTools, menuPos++, IDM_MACRO_SEP, GUI_TEXT(""));
 		SetMenuItemLocalised(menuTools, menuPos++, IDM_MACROLIST,
-		        "&List Macros...", "Shift+F9");
+				     "&List Macros...", "Shift+F9");
 		SetMenuItemLocalised(menuTools, menuPos++, IDM_MACROPLAY,
-		        "Run Current &Macro", "F9");
+				     "Run Current &Macro", "F9");
 		SetMenuItemLocalised(menuTools, menuPos++, IDM_MACRORECORD,
-		        "&Record Macro", "Ctrl+F9");
+				     "&Record Macro", "Ctrl+F9");
 		SetMenuItemLocalised(menuTools, menuPos, IDM_MACROSTOPRECORD,
-		        "S&top Recording Macro", "Ctrl+Shift+F9");
+				     "S&top Recording Macro", "Ctrl+Shift+F9");
 	}
 }
 
@@ -1497,7 +1501,7 @@ inline bool isdigitchar(int ch) noexcept {
 	return (ch >= '0') && (ch <= '9');
 }
 
-static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, int &column) {
+static SA::Line DecodeMessage(const char *cdoc, std::string &sourcePath, int format, SA::Position &column) {
 	sourcePath.clear();
 	column = -1; // default to not detected
 	switch (format) {
@@ -1514,7 +1518,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 					while (*endPath && !isdigitchar(*endPath)) {
 						endPath++;
 					}
-					const int sourceNumber = atoi(endPath) - 1;
+					const SA::Line sourceNumber = IntegerFromText(endPath) - 1;
 					return sourceNumber;
 				}
 			}
@@ -1534,13 +1538,13 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 				++cdoc;
 			for (int i = 0; cdoc[i]; i++) {
 				if (cdoc[i] == ':' && (isdigitchar(cdoc[i + 1]) || (cdoc[i + 1] == '-'))) {
-					const int sourceLine = atoi(cdoc + i + 1);
+					const SA::Line sourceLine = IntegerFromText(cdoc + i + 1);
 					sourcePath.assign(cdoc, i);
 					i += 2;
 					while (isdigitchar(cdoc[i]))
 						++i;
 					if (cdoc[i] == ':' && isdigitchar(cdoc[i + 1]))
-						column = atoi(cdoc + i + 1) - 1;
+						column = IntegerFromText(cdoc + i + 1) - 1;
 					// Some tools show whole file errors as occurring at line 0
 					return (sourceLine > 0) ? sourceLine - 1 : 0;
 				}
@@ -1550,7 +1554,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 	case SCE_ERR_MS: {
 			// Visual *
 			const char *start = cdoc;
-			while (isspacechar(*start)) {
+			while (IsASpace(*start)) {
 				start++;
 			}
 			const char *endPath = strchr(start, '(');
@@ -1563,7 +1567,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 					const ptrdiff_t length = endPath - start;
 					sourcePath.assign(start, length);
 					endPath++;
-					return atoi(endPath) - 1;
+					return IntegerFromText(endPath) - 1;
 				}
 			}
 			break;
@@ -1572,13 +1576,13 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 			// Borland
 			const char *space = strchr(cdoc, ' ');
 			if (space) {
-				while (isspacechar(*space)) {
+				while (IsASpace(*space)) {
 					space++;
 				}
-				while (*space && !isspacechar(*space)) {
+				while (*space && !IsASpace(*space)) {
 					space++;
 				}
-				while (isspacechar(*space)) {
+				while (IsASpace(*space)) {
 					space++;
 				}
 
@@ -1589,11 +1593,11 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 				}
 
 				if (space2) {
-					while (!isspacechar(*space2)) {
+					while (!IsASpace(*space2)) {
 						space2--;
 					}
 
-					while (isspacechar(*(space2 - 1))) {
+					while (IsASpace(*(space2 - 1))) {
 						space2--;
 					}
 
@@ -1601,7 +1605,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 
 					if (length > 0) {
 						sourcePath.assign(space, length);
-						return atoi(space2) - 1;
+						return IntegerFromText(space2) - 1;
 					}
 				}
 			}
@@ -1616,7 +1620,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 				if (length > 0) {
 					sourcePath.assign(at + 4, length);
 					line += 6;
-					return atoi(line) - 1;
+					return IntegerFromText(line) - 1;
 				}
 			}
 			break;
@@ -1629,7 +1633,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 				in += 4;
 				sourcePath.assign(in, line - in);
 				line += 6;
-				return atoi(line) - 1;
+				return IntegerFromText(line) - 1;
 			}
 			break;
 		}
@@ -1651,11 +1655,11 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 					}
 				}
 				line += lenLine;
-				return atoi(line) - 1;
+				return IntegerFromText(line) - 1;
 			} else {
 				// Lua 5.1 error looks like: lua.exe: test1.lua:3: syntax error
 				// reuse the GCC error parsing code above!
-				const char* colon = strstr(cdoc, ": ");
+				const char *colon = strstr(cdoc, ": ");
 				if (colon)
 					return DecodeMessage(colon + 2, sourcePath, SCE_ERR_GCC, column);
 			}
@@ -1663,9 +1667,9 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 		}
 
 	case SCE_ERR_CTAG: {
-			for (int i = 0; cdoc[i]; i++) {
+			for (SA::Position i = 0; cdoc[i]; i++) {
 				if ((isdigitchar(cdoc[i + 1]) || (cdoc[i + 1] == '/' && cdoc[i + 2] == '^')) && cdoc[i] == '\t') {
-					int j = i - 1;
+					SA::Position j = i - 1;
 					while (j > 0 && ! strchr("\t\n\r \"$%'*,;<>?[]^`{|}", cdoc[j])) {
 						j--;
 					}
@@ -1692,7 +1696,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 				const size_t length = line - file;
 				sourcePath.assign(file, length);
 				line += lenLine;
-				return atoi(line) - 1;
+				return IntegerFromText(line) - 1;
 			}
 			break;
 		}
@@ -1701,20 +1705,20 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 			// Essential Lahey Fortran error look like: Line 11, file c:\fortran90\codigo\demo.f90
 			const char *line = strchr(cdoc, ' ');
 			if (line) {
-				while (isspacechar(*line)) {
+				while (IsASpace(*line)) {
 					line++;
 				}
 				const char *file = strchr(line, ' ');
 				if (file) {
-					while (isspacechar(*file)) {
+					while (IsASpace(*file)) {
 						file++;
 					}
-					while (*file && !isspacechar(*file)) {
+					while (*file && !IsASpace(*file)) {
 						file++;
 					}
 					const size_t length = strlen(file);
 					sourcePath.assign(file, length);
-					return atoi(line) - 1;
+					return IntegerFromText(line) - 1;
 				}
 			}
 			break;
@@ -1739,7 +1743,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 					const size_t length = endfile - file;
 					sourcePath.assign(file, length);
 					line++;
-					return atoi(line) - 1;
+					return IntegerFromText(line) - 1;
 				}
 			}
 			break;
@@ -1760,7 +1764,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 				const size_t length = line - file;
 				sourcePath.assign(file, length);
 				line += lenLine;
-				return atoi(line) - 1;
+				return IntegerFromText(line) - 1;
 			}
 			break;
 		}
@@ -1782,7 +1786,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 				sourcePath.assign(file, length);
 				line += lenLine;
 				if ((lineend > line)) {
-					return atoi(line) - 1;
+					return IntegerFromText(line) - 1;
 				}
 			}
 			break;
@@ -1798,13 +1802,13 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 				const char *col = strchr(line + 1, ' ');
 				if (col) {
 					//*col = '\0';
-					const int lnr = atoi(line) - 1;
+					const SA::Line lnr = IntegerFromText(line) - 1;
 					col = strchr(col + 1, ' ');
 					if (col) {
 						const char *endcol = strchr(col + 1, ' ');
 						if (endcol) {
 							//*endcol = '\0';
-							column = atoi(col) - 1;
+							column = IntegerFromText(col) - 1;
 							return lnr;
 						}
 					}
@@ -1822,7 +1826,7 @@ static int DecodeMessage(const char *cdoc, std::string &sourcePath, int format, 
 			const ptrdiff_t length = endPath - startPath;
 			if (length > 0) {
 				sourcePath.assign(startPath, length);
-				const int sourceNumber = atoi(endPath + 1) - 1;
+				const SA::Line sourceNumber = IntegerFromText(endPath + 1) - 1;
 				return sourceNumber;
 			}
 			break;
@@ -1868,27 +1872,27 @@ static void Chomp(std::string &s, char ch) {
 		s.erase(0, posCh + 1);
 }
 
-void SciTEBase::ShowMessages(int line) {
-	wEditor.Call(SCI_ANNOTATIONSETSTYLEOFFSET, diagnosticStyleStart);
-	wEditor.Call(SCI_ANNOTATIONSETVISIBLE, ANNOTATION_BOXED);
-	wEditor.Call(SCI_ANNOTATIONCLEARALL);
+void SciTEBase::ShowMessages(SA::Line line) {
+	wEditor.AnnotationSetStyleOffset(diagnosticStyleStart);
+	wEditor.AnnotationSetVisible(SA::AnnotationVisible::Boxed);
+	wEditor.AnnotationClearAll();
 	TextReader acc(wOutput);
 	while ((line > 0) && (acc.StyleAt(acc.LineStart(line-1)) != SCE_ERR_CMD))
 		line--;
-	const int maxLine = wOutput.Call(SCI_GETLINECOUNT);
+	const SA::Line maxLine = wOutput.LineCount();
 	while ((line < maxLine) && (acc.StyleAt(acc.LineStart(line)) != SCE_ERR_CMD)) {
-		const int startPosLine = wOutput.Call(SCI_POSITIONFROMLINE, line, 0);
-		const int lineEnd = wOutput.Call(SCI_GETLINEENDPOSITION, line, 0);
-		std::string message = GetRangeString(wOutput, startPosLine, lineEnd);
+		const SA::Position startPosLine = wOutput.LineStart(line);
+		const SA::Position lineEnd = wOutput.LineEnd(line);
+		std::string message = wOutput.StringOfRange(SA::Range(startPosLine, lineEnd));
 		std::string source;
-		int column;
+		SA::Position column = 0;
 		int style = acc.StyleAt(startPosLine);
 		if ((style == SCE_ERR_ESCSEQ) || (style == SCE_ERR_ESCSEQ_UNKNOWN) || (style >= SCE_ERR_ES_BLACK)) {
 			// GCC message with ANSI escape sequences
 			RemoveEscSeq(message);
 			style = SCE_ERR_GCC;
 		}
-		const int sourceLine = DecodeMessage(message.c_str(), source, style, column);
+		const SA::Line sourceLine = DecodeMessage(message.c_str(), source, style, column);
 		Chomp(message, ':');
 		if (style == SCE_ERR_GCC) {
 			Chomp(message, ':');
@@ -1906,12 +1910,12 @@ void SciTEBase::ShowMessages(int line) {
 					}
 				}
 			}
-			const int lenCurrent = wEditor.CallString(SCI_ANNOTATIONGETTEXT, sourceLine, nullptr);
+			const int lenCurrent = wEditor.AnnotationGetText(sourceLine, nullptr);
 			std::string msgCurrent(lenCurrent, '\0');
 			std::string stylesCurrent(lenCurrent, '\0');
 			if (lenCurrent) {
-				wEditor.CallString(SCI_ANNOTATIONGETTEXT, sourceLine, &msgCurrent[0]);
-				wEditor.CallString(SCI_ANNOTATIONGETSTYLES, sourceLine, &stylesCurrent[0]);
+				wEditor.AnnotationGetText(sourceLine, &msgCurrent[0]);
+				wEditor.AnnotationGetStyles(sourceLine, &stylesCurrent[0]);
 				msgCurrent += "\n";
 				stylesCurrent += '\0';
 			}
@@ -1926,8 +1930,8 @@ void SciTEBase::ShowMessages(int line) {
 				if (message.find("fatal") != std::string::npos)
 					msgStyle = 3;
 				stylesCurrent += std::string(message.length(), msgStyle);
-				wEditor.CallString(SCI_ANNOTATIONSETTEXT, sourceLine, msgCurrent.c_str());
-				wEditor.CallString(SCI_ANNOTATIONSETSTYLES, sourceLine, stylesCurrent.c_str());
+				wEditor.AnnotationSetText(sourceLine, msgCurrent.c_str());
+				wEditor.AnnotationSetStyles(sourceLine, stylesCurrent.c_str());
 			}
 		}
 		line++;
@@ -1935,41 +1939,41 @@ void SciTEBase::ShowMessages(int line) {
 }
 
 void SciTEBase::GoMessage(int dir) {
-	const int selStart = wOutput.Call(SCI_GETSELECTIONSTART);
-	const int curLine = wOutput.Call(SCI_LINEFROMPOSITION, selStart);
-	const int maxLine = wOutput.Call(SCI_GETLINECOUNT);
-	int lookLine = curLine + dir;
+	const SA::Position selStart = wOutput.SelectionStart();
+	const SA::Line curLine = wOutput.LineFromPosition(selStart);
+	const SA::Line maxLine = wOutput.LineCount();
+	SA::Line lookLine = curLine + dir;
 	if (lookLine < 0)
 		lookLine = maxLine - 1;
 	else if (lookLine >= maxLine)
 		lookLine = 0;
 	TextReader acc(wOutput);
 	while ((dir == 0) || (lookLine != curLine)) {
-		const int startPosLine = wOutput.Call(SCI_POSITIONFROMLINE, lookLine, 0);
-		const int lineLength = wOutput.Call(SCI_LINELENGTH, lookLine, 0);
+		const SA::Position startPosLine = wOutput.LineStart(lookLine);
+		const SA::Position lineLength = wOutput.LineLength(lookLine);
 		int style = acc.StyleAt(startPosLine);
 		if (style != SCE_ERR_DEFAULT &&
-		        style != SCE_ERR_CMD &&
-		        style != SCE_ERR_DIFF_ADDITION &&
-		        style != SCE_ERR_DIFF_CHANGED &&
-		        style != SCE_ERR_DIFF_DELETION) {
-			wOutput.Call(SCI_MARKERDELETEALL, static_cast<uptr_t>(-1));
-			wOutput.Call(SCI_MARKERDEFINE, 0, SC_MARK_SMALLRECT);
-			wOutput.Call(SCI_MARKERSETFORE, 0, ColourOfProperty(props,
-			        "error.marker.fore", ColourRGB(0x7f, 0, 0)));
-			wOutput.Call(SCI_MARKERSETBACK, 0, ColourOfProperty(props,
-			        "error.marker.back", ColourRGB(0xff, 0xff, 0)));
-			wOutput.Call(SCI_MARKERADD, lookLine, 0);
-			wOutput.Call(SCI_SETSEL, startPosLine, startPosLine);
-			std::string message = GetRangeString(wOutput, startPosLine, startPosLine + lineLength);
+				style != SCE_ERR_CMD &&
+				style != SCE_ERR_DIFF_ADDITION &&
+				style != SCE_ERR_DIFF_CHANGED &&
+				style != SCE_ERR_DIFF_DELETION) {
+			wOutput.MarkerDeleteAll(-1);
+			wOutput.MarkerDefine(0, SA::MarkerSymbol::SmallRect);
+			wOutput.MarkerSetFore(0, ColourOfProperty(props,
+					      "error.marker.fore", ColourRGB(0x7f, 0, 0)));
+			wOutput.MarkerSetBack(0, ColourOfProperty(props,
+					      "error.marker.back", ColourRGB(0xff, 0xff, 0)));
+			wOutput.MarkerAdd(lookLine, 0);
+			wOutput.SetSel(startPosLine, startPosLine);
+			std::string message = wOutput.StringOfRange(SA::Range(startPosLine, startPosLine + lineLength));
 			if ((style == SCE_ERR_ESCSEQ) || (style == SCE_ERR_ESCSEQ_UNKNOWN) || (style >= SCE_ERR_ES_BLACK)) {
 				// GCC message with ANSI escape sequences
 				RemoveEscSeq(message);
 				style = SCE_ERR_GCC;
 			}
 			std::string source;
-			int column;
-			long sourceLine = DecodeMessage(message.c_str(), source, style, column);
+			SA::Position column;
+			SA::Line sourceLine = DecodeMessage(message.c_str(), source, style, column);
 			if (sourceLine >= 0) {
 				GUI::gui_string sourceString = GUI::StringFromUTF8(source);
 				FilePath sourcePath = FilePath(sourceString).NormalizePath();
@@ -2009,19 +2013,19 @@ void SciTEBase::GoMessage(int dir) {
 					if (cTag.length() != 0) {
 						if (atoi(cTag.c_str()) > 0) {
 							//if tag is linenumber, get line
-							sourceLine = atoi(cTag.c_str()) - 1;
+							sourceLine = IntegerFromText(cTag.c_str()) - 1;
 						} else {
 							findWhat = cTag;
 							FindNext(false);
 							//get linenumber for marker from found position
-							sourceLine = wEditor.Call(SCI_LINEFROMPOSITION, wEditor.Call(SCI_GETCURRENTPOS));
+							sourceLine = wEditor.LineFromPosition(wEditor.CurrentPos());
 						}
 					}
 				}
 
 				else if (style == SCE_ERR_DIFF_MESSAGE) {
 					const bool isAdd = message.find("+++ ") == 0;
-					const int atLine = lookLine + (isAdd ? 1 : 2); // lines are in this order: ---, +++, @@
+					const SA::Line atLine = lookLine + (isAdd ? 1 : 2); // lines are in this order: ---, +++, @@
 					std::string atMessage = GetLine(wOutput, atLine);
 					if (StartsWith(atMessage, "@@ -")) {
 						size_t atPos = 4; // deleted position starts right after "@@ -"
@@ -2030,7 +2034,7 @@ void SciTEBase::GoMessage(int dir) {
 							if (linePlace != std::string::npos)
 								atPos = linePlace + 2; // skip "@@ -1,1" and then " +"
 						}
-						sourceLine = atol(atMessage.c_str() + atPos) - 1;
+						sourceLine = IntegerFromText(atMessage.c_str() + atPos) - 1;
 					}
 				}
 
@@ -2038,20 +2042,20 @@ void SciTEBase::GoMessage(int dir) {
 					ShowMessages(lookLine);
 				}
 
-				wEditor.Call(SCI_MARKERDELETEALL, 0);
-				wEditor.Call(SCI_MARKERDEFINE, 0, SC_MARK_CIRCLE);
-				wEditor.Call(SCI_MARKERSETFORE, 0, ColourOfProperty(props,
-				        "error.marker.fore", ColourRGB(0x7f, 0, 0)));
-				wEditor.Call(SCI_MARKERSETBACK, 0, ColourOfProperty(props,
-				        "error.marker.back", ColourRGB(0xff, 0xff, 0)));
-				wEditor.Call(SCI_MARKERADD, sourceLine, 0);
-				int startSourceLine = wEditor.Call(SCI_POSITIONFROMLINE, sourceLine, 0);
-				const int endSourceline = wEditor.Call(SCI_POSITIONFROMLINE, sourceLine + 1, 0);
+				wEditor.MarkerDeleteAll(0);
+				wEditor.MarkerDefine(0, SA::MarkerSymbol::Circle);
+				wEditor.MarkerSetFore(0, ColourOfProperty(props,
+						      "error.marker.fore", ColourRGB(0x7f, 0, 0)));
+				wEditor.MarkerSetBack(0, ColourOfProperty(props,
+						      "error.marker.back", ColourRGB(0xff, 0xff, 0)));
+				wEditor.MarkerAdd(sourceLine, 0);
+				SA::Position startSourceLine = wEditor.LineStart(sourceLine);
+				const SA::Position endSourceline = wEditor.LineStart(sourceLine + 1);
 				if (column >= 0) {
 					// Get the position in line according to current tab setting
-					startSourceLine = wEditor.Call(SCI_FINDCOLUMN, sourceLine, column);
+					startSourceLine = wEditor.FindColumn(sourceLine, column);
 				}
-				EnsureRangeVisible(wEditor, startSourceLine, startSourceLine);
+				EnsureRangeVisible(wEditor, SA::Range(startSourceLine));
 				if (props.GetInt("error.select.line") == 1) {
 					//select whole source source line from column with error
 					SetSelection(endSourceline, startSourceLine);

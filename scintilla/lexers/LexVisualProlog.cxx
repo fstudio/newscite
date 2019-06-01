@@ -79,7 +79,7 @@ public:
         delete this;
     }
     int SCI_METHOD Version() const override {
-        return lvOriginal;
+        return lvRelease4;
     }
     const char * SCI_METHOD PropertyNames() override {
         return osVisualProlog.PropertyNames();
@@ -102,7 +102,7 @@ public:
         return 0;
     }
 
-    static ILexer *LexerFactoryVisualProlog() {
+    static ILexer4 *LexerFactoryVisualProlog() {
         return new LexerVisualProlog();
     }
 };

@@ -7,22 +7,27 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <ctime>
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <set>
 #include <memory>
+#include <chrono>
 #include <sstream>
 
 #include <fcntl.h>
 #include <sys/stat.h>
 
 #include "ILexer.h"
-#include "Scintilla.h"
+
+#include "ScintillaTypes.h"
+#include "ScintillaCall.h"
 
 #include "GUI.h"
 #include "ScintillaWindow.h"
@@ -72,22 +77,26 @@ struct PDFStyle {
 	int font=0;
 };
 
-static const char *PDFfontNames[] = {
-            "Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
-            "Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
-            "Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic"
-        };
+namespace {
+
+const char *PDFfontNames[] = {
+	"Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique",
+	"Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique",
+	"Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic"
+};
 
 // ascender, descender aligns font origin point with page
-static short PDFfontAscenders[] =  { 629, 718, 699 };
-static short PDFfontDescenders[] = { 157, 207, 217 };
-static short PDFfontWidths[] =     { 600,   0,   0 };
+short PDFfontAscenders[] =  { 629, 718, 699 };
+short PDFfontDescenders[] = { 157, 207, 217 };
+short PDFfontWidths[] =     { 600,   0,   0 };
 
-inline std::string getPDFRGB(const char* stylecolour) {
+}
+
+inline std::string getPDFRGB(const char *stylecolour) {
 	std::string ret;
 	// grab colour components (max string length produced = 18)
 	for (int i = 1; i < 6; i += 2) {
-		char val[20];
+		char val[20] = "";
 		// 3 decimal places for enough dynamic range
 		const int c = (IntFromHexByte(stylecolour + i) * 1000 + 127) / 255;
 		if (c == 0 || c == 1000) {	// optimise
@@ -140,7 +149,7 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 		}
 		// builds xref table, returns file offset of xref table
 		long xref() {
-			char val[32];
+			char val[32] = "";
 			// xref start index and number of entries
 			const long xrefStart = ftell(fp);
 			write("xref\n0 ");
@@ -189,8 +198,8 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 			xPos = 0.0;
 			yPos = 0.0;
 			justWhiteSpace = true;
-			styleCurrent = STYLE_DEFAULT;
-			stylePrev = STYLE_DEFAULT;
+			styleCurrent = StyleDefault;
+			stylePrev = StyleDefault;
 			leading = PDF_FONTSIZE_DEFAULT * PDF_SPACING_DEFAULT;
 			buffer[0] = '\0';
 			oT = nullptr;
@@ -213,14 +222,14 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 			std::string buff;
 			if (styleNext != styleCurrent || style_ == -1) {
 				if (style[styleCurrent].font != style[styleNext].font
-				        || style_ == -1) {
+						|| style_ == -1) {
 					char fontSpec[100];
 					sprintf(fontSpec, "/F%d %d Tf ",
-					        style[styleNext].font + 1, fontSize);
+						style[styleNext].font + 1, fontSize);
 					buff += fontSpec;
 				}
 				if ((style[styleCurrent].fore != style[styleNext].fore)
-				        || style_ == -1) {
+						|| style_ == -1) {
 					buff += style[styleNext].fore;
 					buff += "rg ";
 				}
@@ -246,17 +255,17 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 			// start to write PDF file here (PDF1.4Ref(p63))
 			// ASCII>127 characters to indicate binary-possible stream
 			oT->write("%PDF-1.3\n%\xc7\xec\x8f\xa2\n");
-			styleCurrent = STYLE_DEFAULT;
+			styleCurrent = StyleDefault;
 
 			// build objects for font resources; note that font objects are
 			// *expected* to start from index 1 since they are the first objects
 			// to be inserted (PDF1.4Ref(p317))
 			for (int i = 0; i < 4; i++) {
 				sprintf(buffer, "<</Type/Font/Subtype/Type1"
-				        "/Name/F%d/BaseFont/%s/Encoding/"
-				        PDF_ENCODING
-				        ">>\n", i + 1,
-				        PDFfontNames[fontSet * 4 + i]);
+					"/Name/F%d/BaseFont/%s/Encoding/"
+					PDF_ENCODING
+					">>\n", i + 1,
+					PDFfontNames[fontSet * 4 + i]);
 				oT->add(buffer);
 			}
 			pageContentStart = oT->index;
@@ -267,20 +276,20 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 			}
 			// refer to all used or unused fonts for simplicity
 			const int resourceRef = oT->add(
-			            "<</ProcSet[/PDF/Text]\n"
-			            "/Font<</F1 1 0 R/F2 2 0 R/F3 3 0 R"
-			            "/F4 4 0 R>> >>\n");
+							"<</ProcSet[/PDF/Text]\n"
+							"/Font<</F1 1 0 R/F2 2 0 R/F3 3 0 R"
+							"/F4 4 0 R>> >>\n");
 			// create all the page objects (PDF1.4Ref(p88))
 			// forward reference pages object; calculate its object number
 			const int pageObjectStart = oT->index;
 			const int pagesRef = pageObjectStart + pageCount;
 			for (int i = 0; i < pageCount; i++) {
 				sprintf(buffer, "<</Type/Page/Parent %d 0 R\n"
-				        "/MediaBox[ 0 0 %ld %ld"
-				        "]\n/Contents %d 0 R\n"
-				        "/Resources %d 0 R\n>>\n",
-				        pagesRef, pageWidth, pageHeight,
-				        pageContentStart + i, resourceRef);
+					"/MediaBox[ 0 0 %ld %ld"
+					"]\n/Contents %d 0 R\n"
+					"/Resources %d 0 R\n>>\n",
+					pagesRef, pageWidth, pageHeight,
+					pageContentStart + i, resourceRef);
 				oT->add(buffer);
 			}
 			// create page tree object (PDF1.4Ref(p86))
@@ -299,8 +308,8 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 			const long xref = oT->xref();
 			// end the file with the trailer (PDF1.4Ref(p67))
 			sprintf(buffer, "trailer\n<< /Size %d /Root %d 0 R\n>>"
-			        "\nstartxref\n%ld\n%%%%EOF\n",
-			        oT->index, catalogRef, xref);
+				"\nstartxref\n%ld\n%%%%EOF\n",
+				oT->index, catalogRef, xref);
 			oT->write(buffer);
 		}
 		void add(char ch, int style_) {
@@ -353,7 +362,7 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 			yPos = pageHeight - pageMargin.top - fontAscender;
 			// start a new page
 			sprintf(buffer, "BT 1 0 0 1 %d %d Tm\n",
-			        pageMargin.left, (int)yPos);
+				pageMargin.left, (int)yPos);
 			pageData = buffer;
 			// force setting of initial font, colour
 			segStyle = setStyle(-1);
@@ -371,12 +380,12 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 				std::ostringstream osTextObj;
 				// concatenate stream within the text object
 				osTextObj
-					<< "<</Length "
-					<< static_cast<int>(pageData.length() - 1 + 3)
-					<< ">>\nstream\n"
-					<< pageData.c_str()
-					<< "ET\nendstream\n";
-				std::string textObj = osTextObj.str();
+						<< "<</Length "
+						<< (pageData.length() - 1 + 3)
+						<< ">>\nstream\n"
+						<< pageData.c_str()
+						<< "ET\nendstream\n";
+				const std::string textObj = osTextObj.str();
 				oT->add(textObj.c_str());
 			} catch (std::exception &) {
 				// Exceptions not enabled on stream but still causes diagnostic in Coverity.
@@ -411,7 +420,7 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 	PDFRender pr;
 
 	RemoveFindMarks();
-	wEditor.Call(SCI_COLOURISE, 0, -1);
+	wEditor.ColouriseAll();
 	// read exporter flags
 	int tabSize = props.GetInt("tabsize", PDF_TAB_DEFAULT);
 	if (tabSize < 0) {
@@ -432,7 +441,7 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 	}
 	// page size: width, height
 	propItem = props.GetExpandedString("export.pdf.pagesize");
-	char buffer[200];
+	char buffer[200] = "";
 	const char *ps = propItem.c_str();
 	const char *next = GetNextPropItem(ps, buffer, 32);
 	if (0 >= (pr.pageWidth = atol(buffer))) {
@@ -464,8 +473,8 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 
 	// collect all styles available for that 'language'
 	// or the default style if no language is available...
-	pr.style.resize(STYLE_MAX + 1);
-	for (int i = 0; i <= STYLE_MAX; i++) {	// get keys
+	pr.style.resize(StyleMax + 1);
+	for (int i = 0; i <= StyleMax; i++) {	// get keys
 		pr.style[i].font = 0;
 		pr.style[i].fore = "";
 
@@ -476,11 +485,11 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 			if (sd.IsBold()) { pr.style[i].font |= 1; }
 			if (sd.fore.length()) {
 				pr.style[i].fore = getPDFRGB(sd.fore.c_str());
-			} else if (i == STYLE_DEFAULT) {
+			} else if (i == StyleDefault) {
 				pr.style[i].fore = "0 0 0 ";
 			}
 			// grab font size from default style
-			if (i == STYLE_DEFAULT) {
+			if (i == StyleDefault) {
 				if (sd.size > 0)
 					pr.fontSize += sd.size;
 				else
@@ -489,9 +498,9 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 		}
 	}
 	// patch in default foregrounds
-	for (int j = 0; j <= STYLE_MAX; j++) {
+	for (int j = 0; j <= StyleMax; j++) {
 		if (pr.style[j].fore.empty()) {
-			pr.style[j].fore = pr.style[STYLE_DEFAULT].fore;
+			pr.style[j].fore = pr.style[StyleDefault].fore;
 		}
 	}
 
@@ -507,14 +516,14 @@ void SciTEBase::SaveToPDF(const FilePath &saveName) {
 	pr.startPDF();
 
 	// do here all the writing
-	const int lengthDoc = LengthDocument();
+	const SA::Position lengthDoc = LengthDocument();
 	TextReader acc(wEditor);
 
 	if (!lengthDoc) {	// enable zero length docs
 		pr.nextLine();
 	} else {
 		int lineIndex = 0;
-		for (int i = 0; i < lengthDoc; i++) {
+		for (SA::Position i = 0; i < lengthDoc; i++) {
 			const char ch = acc[i];
 			const int style = acc.StyleAt(i);
 

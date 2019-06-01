@@ -50,6 +50,7 @@
 #include <iterator>
 #include <functional>
 #include <memory>
+#include <chrono>
 #include <regex>
 #include <iostream>
 #include <sstream>
@@ -107,6 +108,9 @@
 #include "Sci_Position.h"
 #include "ILoader.h"
 #include "ILexer.h"
+#include "ScintillaTypes.h"
+#include "ScintillaMessages.h"
+#include "ScintillaCall.h"
 #include "Scintilla.h"
 #include "ScintillaWidget.h"
 

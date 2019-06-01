@@ -7,22 +7,27 @@
 
 #include <cstddef>
 #include <cstdlib>
+#include <cstdint>
 #include <cstring>
 #include <cstdio>
 #include <ctime>
 
 #include <string>
+#include <string_view>
 #include <vector>
 #include <map>
 #include <set>
 #include <memory>
+#include <chrono>
 #include <sstream>
 
 #include <fcntl.h>
 #include <sys/stat.h>
 
 #include "ILexer.h"
-#include "Scintilla.h"
+
+#include "ScintillaTypes.h"
+#include "ScintillaCall.h"
 
 #include "GUI.h"
 #include "ScintillaWindow.h"
@@ -46,7 +51,7 @@
 
 void SciTEBase::SaveToHTML(const FilePath &saveName) {
 	RemoveFindMarks();
-	wEditor.Call(SCI_COLOURISE, 0, -1);
+	wEditor.ColouriseAll();
 	int tabSize = props.GetInt("tabsize");
 	if (tabSize == 0)
 		tabSize = 4;
@@ -56,25 +61,23 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 	const int onlyStylesUsed = props.GetInt("export.html.styleused", 0);
 	const int titleFullPath = props.GetInt("export.html.title.fullpath", 0);
 
-	const int lengthDoc = LengthDocument();
+	const SA::Position lengthDoc = LengthDocument();
 	TextReader acc(wEditor);
 
-	bool styleIsUsed[STYLE_MAX + 1];
+	const int StyleLastPredefined = static_cast<int>(SA::StylesCommon::LastPredefined);
+
+	bool styleIsUsed[StyleMax + 1] = {};
 	if (onlyStylesUsed) {
-		int i;
-		for (i = 0; i <= STYLE_MAX; i++) {
-			styleIsUsed[i] = false;
-		}
 		// check the used styles
-		for (i = 0; i < lengthDoc; i++) {
+		for (SA::Position i = 0; i < lengthDoc; i++) {
 			styleIsUsed[acc.StyleAt(i)] = true;
 		}
 	} else {
-		for (int i = 0; i <= STYLE_MAX; i++) {
+		for (int i = 0; i <= StyleMax; i++) {
 			styleIsUsed[i] = true;
 		}
 	}
-	styleIsUsed[STYLE_DEFAULT] = true;
+	styleIsUsed[StyleDefault] = true;
 
 	FILE *fp = saveName.Open(GUI_TEXT("wt"));
 	bool failedWrite = fp == nullptr;
@@ -84,14 +87,14 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 		fputs("<head>\n", fp);
 		if (titleFullPath)
 			fprintf(fp, "<title>%s</title>\n",
-			        filePath.AsUTF8().c_str());
+				filePath.AsUTF8().c_str());
 		else
 			fprintf(fp, "<title>%s</title>\n",
-			        filePath.Name().AsUTF8().c_str());
+				filePath.Name().AsUTF8().c_str());
 		// Probably not used by robots, but making a little advertisement for those looking
 		// at the source code doesn't hurt...
 		fputs("<meta name=\"Generator\" content=\"SciTE - www.Scintilla.org\" />\n", fp);
-		if (codePage == SC_CP_UTF8)
+		if (codePage == SA::CpUtf8)
 			fputs("<meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\" />\n", fp);
 
 		if (folding) {
@@ -125,7 +128,7 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 
 		std::string bgColour;
 
-		StyleDefinition sddef = StyleDefinitionFor(STYLE_DEFAULT);
+		StyleDefinition sddef = StyleDefinitionFor(StyleDefault);
 
 		if (sddef.back.length()) {
 			bgColour = sddef.back;
@@ -134,8 +137,8 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 		std::string sval = props.GetExpandedString("font.monospace");
 		StyleDefinition sdmono(sval.c_str());
 
-		for (int istyle = 0; istyle <= STYLE_MAX; istyle++) {
-			if ((istyle > STYLE_DEFAULT) && (istyle <= STYLE_LASTPREDEFINED))
+		for (int istyle = 0; istyle <= StyleMax; istyle++) {
+			if ((istyle > StyleDefault) && (istyle <= StyleLastPredefined))
 				continue;
 			if (styleIsUsed[istyle]) {
 
@@ -149,7 +152,7 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 				}
 
 				if (sd.specified != StyleDefinition::sdNone) {
-					if (istyle == STYLE_DEFAULT) {
+					if (istyle == StyleDefault) {
 						fprintf(fp, "span {\n");
 					} else {
 						fprintf(fp, ".S%0d {\n", istyle);
@@ -165,11 +168,11 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 					}
 					if (sd.fore.length()) {
 						fprintf(fp, "\tcolor: %s;\n", sd.fore.c_str());
-					} else if (istyle == STYLE_DEFAULT) {
+					} else if (istyle == StyleDefault) {
 						fprintf(fp, "\tcolor: #000000;\n");
 					}
 					if ((sd.specified & StyleDefinition::sdBack) && sd.back.length()) {
-						if (istyle != STYLE_DEFAULT && bgColour != sd.back) {
+						if (istyle != StyleDefault && bgColour != sd.back) {
 							fprintf(fp, "\tbackground: %s;\n", sd.back.c_str());
 							fprintf(fp, "\ttext-decoration: inherit;\n");
 						}
@@ -190,9 +193,8 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 		else
 			fputs("<body>\n", fp);
 
-		int line = acc.GetLine(0);
-		int level = (acc.LevelAt(line) & SC_FOLDLEVELNUMBERMASK) - SC_FOLDLEVELBASE;
-		int newLevel;
+		SA::Line line = acc.GetLine(0);
+		int level = LevelNumber(acc.LevelAt(line)) - static_cast<int>(SA::FoldLevel::Base);
 		int styleCurrent = acc.StyleAt(0);
 		bool inStyleSpan = false;
 		bool inFoldSpan = false;
@@ -204,12 +206,14 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 		}
 
 		if (folding) {
-			const int lvl = acc.LevelAt(0);
-			level = (lvl & SC_FOLDLEVELNUMBERMASK) - SC_FOLDLEVELBASE;
+			const SA::FoldLevel lvl = acc.LevelAt(0);
+			level = LevelNumber(lvl) - static_cast<int>(SA::FoldLevel::Base);
 
-			if (lvl & SC_FOLDLEVELHEADERFLAG) {
-				fprintf(fp, "<span id=\"hd%d\" onclick=\"toggle('%d')\">", line, line + 1);
-				fprintf(fp, "<span id=\"bt%d\">- </span>", line);
+			if (LevelIsHeader(lvl)) {
+				const std::string sLine = std::to_string(line);
+				const std::string sLineNext = std::to_string(line+1);
+				fprintf(fp, "<span id=\"hd%s\" onclick=\"toggle('%s')\">", sLine.c_str(), sLineNext.c_str());
+				fprintf(fp, "<span id=\"bt%s\">- </span>", sLine.c_str());
 				inFoldSpan = true;
 			} else {
 				fputs("&nbsp; ", fp);
@@ -224,7 +228,7 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 		// no span for it, except the global one
 
 		int column = 0;
-		for (int i = 0; i < lengthDoc; i++) {
+		for (SA::Position i = 0; i < lengthDoc; i++) {
 			const char ch = acc[i];
 			const int style = acc.StyleAt(i);
 
@@ -305,18 +309,22 @@ void SciTEBase::SaveToHTML(const FilePath &saveName) {
 				if (folding) {
 					line = acc.GetLine(i + 1);
 
-					const int lvl = acc.LevelAt(line);
-					newLevel = (lvl & SC_FOLDLEVELNUMBERMASK) - SC_FOLDLEVELBASE;
+					const SA::FoldLevel lvl = acc.LevelAt(line);
+					const int newLevel = LevelNumber(lvl) - static_cast<int>(SA::FoldLevel::Base);
 
 					if (newLevel < level)
 						fprintf(fp, "</span>");
 					fputc('\n', fp); // here to get clean code
-					if (newLevel > level)
-						fprintf(fp, "<span id=\"ln%d\">", line);
+					if (newLevel > level) {
+						const std::string sLine = std::to_string(line);
+						fprintf(fp, "<span id=\"ln%s\">", sLine.c_str());
+					}
 
-					if (lvl & SC_FOLDLEVELHEADERFLAG) {
-						fprintf(fp, "<span id=\"hd%d\" onclick=\"toggle('%d')\">", line, line + 1);
-						fprintf(fp, "<span id=\"bt%d\">- </span>", line);
+					if (LevelIsHeader(lvl)) {
+						const std::string sLine = std::to_string(line);
+						const std::string sLineNext = std::to_string(line + 1);
+						fprintf(fp, "<span id=\"hd%s\" onclick=\"toggle('%s')\">", sLine.c_str(), sLineNext.c_str());
+						fprintf(fp, "<span id=\"bt%s\">- </span>", sLine.c_str());
 						inFoldSpan = true;
 					} else
 						fputs("&nbsp; ", fp);

@@ -12,12 +12,11 @@
 #include <string>
 #include <vector>
 #include <memory>
+#include <chrono>
 
 #include "ILoader.h"
-#include "Scintilla.h"
 
 #include "GUI.h"
-#include "ScintillaWindow.h"
 
 #include "FilePath.h"
 #include "Mutex.h"
@@ -35,7 +34,7 @@ FileWorker::FileWorker(WorkerListener *pListener_, const FilePath &path_, size_t
 FileWorker::~FileWorker() {
 }
 
-double FileWorker::Duration() {
+double FileWorker::Duration() noexcept {
 	return et.Duration();
 }
 
@@ -57,8 +56,8 @@ void FileLoader::Execute() {
 			GUI::SleepMilliseconds(sleepTime);
 			lenFile = convert.convert(&data[0], lenFile);
 			const char *dataBlock = convert.getNewBuf();
-			err = pLoader->AddData(dataBlock, static_cast<int>(lenFile));
-			IncrementProgress(static_cast<int>(lenFile));
+			err = pLoader->AddData(dataBlock, lenFile);
+			IncrementProgress(lenFile);
 			if (et.Duration() > nextProgress) {
 				nextProgress = et.Duration() + timeBetweenProgress;
 				pListener->PostOnMainThread(WORK_FILEPROGRESS, this);
@@ -69,14 +68,14 @@ void FileLoader::Execute() {
 				const size_t lenFileTrail = convert.convert(nullptr, lenFile);
 				if (lenFileTrail) {
 					const char *dataTrail = convert.getNewBuf();
-					err = pLoader->AddData(dataTrail, static_cast<int>(lenFileTrail));
+					err = pLoader->AddData(dataTrail, lenFileTrail);
 				}
 			}
 		}
 		fclose(fp);
 		fp = nullptr;
 		unicodeMode = static_cast<UniMode>(
-		            static_cast<int>(convert.getEncoding()));
+				      static_cast<int>(convert.getEncoding()));
 		// Check the first two lines for coding cookies
 		if (unicodeMode == uni8Bit) {
 			unicodeMode = umCodingCookie;
@@ -93,16 +92,16 @@ void FileLoader::Cancel() {
 }
 
 FileStorer::FileStorer(WorkerListener *pListener_, const char *documentBytes_, const FilePath &path_,
-	size_t size_, FILE *fp_, UniMode unicodeMode_, bool visibleProgress_) :
+		       size_t size_, FILE *fp_, UniMode unicodeMode_, bool visibleProgress_) :
 	FileWorker(pListener_, path_, size_, fp_), documentBytes(documentBytes_), writtenSoFar(0),
-		unicodeMode(unicodeMode_), visibleProgress(visibleProgress_) {
+	unicodeMode(unicodeMode_), visibleProgress(visibleProgress_) {
 	SetSizeJob(size);
 }
 
 FileStorer::~FileStorer() {
 }
 
-static bool IsUTF8TrailByte(int ch) {
+static bool IsUTF8TrailByte(int ch) noexcept {
 	return (ch >= 0x80) && (ch < (0x80 + 0x40));
 }
 
@@ -111,7 +110,7 @@ void FileStorer::Execute() {
 		Utf8_16_Write convert;
 		if (unicodeMode != uniCookie) {	// Save file with cookie without BOM.
 			convert.setEncoding(static_cast<Utf8_16::encodingType>(
-					static_cast<int>(unicodeMode)));
+						    static_cast<int>(unicodeMode)));
 		}
 		convert.setfile(fp);
 		std::vector<char> data(blockSize + 1);

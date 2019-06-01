@@ -19,10 +19,9 @@
 #include <set>
 #include <algorithm>
 #include <memory>
+#include <chrono>
 
 #include <sys/stat.h>
-
-#include "Scintilla.h"
 
 #include "GUI.h"
 
@@ -33,7 +32,7 @@
 #include "Mutex.h"
 #include "JobQueue.h"
 
-JobSubsystem SubsystemFromChar(char c) {
+JobSubsystem SubsystemFromChar(char c) noexcept {
 	if (c == '1')
 		return jobGUI;
 	else if (c == '2')
@@ -58,7 +57,7 @@ JobMode::JobMode(PropSetFile &props, int item, const char *fileNameExt) : jobTyp
 	std::string propName = std::string("command.mode.") + itemSuffix;
 	std::string modeVal(props.GetNewExpandString(propName.c_str(), fileNameExt));
 
-	modeVal.erase(std::remove(modeVal.begin(), modeVal.end(),' '), modeVal.end());
+	modeVal.erase(std::remove(modeVal.begin(), modeVal.end(), ' '), modeVal.end());
 	std::vector<std::string> modes = StringSplit(modeVal, ',');
 	for (const std::string &mode : modes) {
 

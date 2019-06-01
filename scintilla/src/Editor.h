@@ -522,7 +522,7 @@ protected:	// ScintillaBase subclass needs access to much of Editor
 	Sci::Position PositionAfterMaxStyling(Sci::Position posMax, bool scrolling) const;
 	void StartIdleStyling(bool truncatedLastStyling);
 	void StyleAreaBounded(PRectangle rcArea, bool scrolling);
-	bool SynchronousStylingToVisible() const noexcept {
+	constexpr bool SynchronousStylingToVisible() const noexcept {
 		return (idleStyling == SC_IDLESTYLING_NONE) || (idleStyling == SC_IDLESTYLING_AFTERVISIBLE);
 	}
 	void IdleStyling();
@@ -625,6 +625,7 @@ public:
 			surf->Init(ed->wMain.GetID());
 			surf->SetUnicodeMode(SC_CP_UTF8 == ed->CodePage());
 			surf->SetDBCSMode(ed->CodePage());
+			surf->SetBidiR2L(ed->BidirectionalR2L());
 		}
 	}
 	AutoSurface(SurfaceID sid, Editor *ed, int technology = -1) {
@@ -633,6 +634,7 @@ public:
 			surf->Init(sid, ed->wMain.GetID());
 			surf->SetUnicodeMode(SC_CP_UTF8 == ed->CodePage());
 			surf->SetDBCSMode(ed->CodePage());
+			surf->SetBidiR2L(ed->BidirectionalR2L());
 		}
 	}
 	// Deleted so AutoSurface objects can not be copied.

@@ -5,6 +5,7 @@
 // Copyright 2010 by Neil Hodgson <neilh@scintilla.org>
 // The License.txt file describes the conditions under which this software may be distributed.
 
+#include <cstdlib>
 #include <cstring>
 #include <cstdio>
 
@@ -12,28 +13,27 @@
 #include <vector>
 #include <algorithm>
 #include <functional>
-
-#include "Scintilla.h"
+#include <chrono>
 
 #include "GUI.h"
 #include "StringHelpers.h"
 
 bool StartsWith(std::wstring_view s, std::wstring_view start) {
 	return (s.size() >= start.size()) &&
-		(std::equal(s.begin(), s.begin() + start.size(), start.begin()));
+	       (std::equal(s.begin(), s.begin() + start.size(), start.begin()));
 }
 
 bool StartsWith(std::string_view s, std::string_view start) {
 	return (s.size() >= start.size()) &&
-		(std::equal(s.begin(), s.begin() + start.size(), start.begin()));
+	       (std::equal(s.begin(), s.begin() + start.size(), start.begin()));
 }
 
 bool EndsWith(std::wstring_view s, std::wstring_view end) {
 	return (s.size() >= end.size()) &&
-		(std::equal(s.begin() + s.size() - end.size(), s.end(), end.begin()));
+	       (std::equal(s.begin() + s.size() - end.size(), s.end(), end.begin()));
 }
 
-bool Contains(std::string const &s, char ch) {
+bool Contains(std::string const &s, char ch) noexcept {
 	return s.find(ch) != std::string::npos;
 }
 
@@ -86,7 +86,7 @@ std::string StdStringFromDouble(double d, int precision) {
 	return std::string(number);
 }
 
-static char LowerCaseAZChar(char c) {
+static char LowerCaseAZChar(char c) noexcept {
 	if (c >= 'A' && c <= 'Z') {
 		return c - 'A' + 'a';
 	} else {
@@ -98,7 +98,11 @@ void LowerCaseAZ(std::string &s) {
 	std::transform(s.begin(), s.end(), s.begin(), LowerCaseAZChar);
 }
 
-int CompareNoCase(const char *a, const char *b) {
+intptr_t IntegerFromText(const char *s) noexcept {
+	return static_cast<intptr_t>(atoll(s));
+}
+
+int CompareNoCase(const char *a, const char *b) noexcept {
 	while (*a && *b) {
 		if (*a != *b) {
 			const char upperA = MakeUpperCase(*a);
@@ -113,11 +117,11 @@ int CompareNoCase(const char *a, const char *b) {
 	return *a - *b;
 }
 
-bool EqualCaseInsensitive(const char *a, const char *b) {
+bool EqualCaseInsensitive(const char *a, const char *b) noexcept {
 	return 0 == CompareNoCase(a, b);
 }
 
-bool isprefix(const char *target, const char *prefix) {
+bool isprefix(const char *target, const char *prefix) noexcept {
 	while (*target && *prefix) {
 		if (*target != *prefix)
 			return false;
@@ -156,7 +160,7 @@ std::u32string UTF32FromUTF8(std::string_view s) {
 	return ret;
 }
 
-unsigned int UTF32Character(const char *utf8) {
+unsigned int UTF32Character(const char *utf8) noexcept {
 	unsigned char ch = utf8[0];
 	unsigned int u32Char;
 	if (ch < 0x80) {
@@ -224,14 +228,14 @@ std::string Slash(const std::string &s, bool quoteQuotes) {
 /**
  * Is the character an octal digit?
  */
-static bool IsOctalDigit(char ch) {
+static bool IsOctalDigit(char ch) noexcept {
 	return ch >= '0' && ch <= '7';
 }
 
 /**
  * If the character is an hexa digit, get its value.
  */
-static int GetHexaDigit(char ch) {
+static int GetHexaDigit(char ch) noexcept {
 	if (ch >= '0' && ch <= '9') {
 		return ch - '0';
 	}
@@ -247,7 +251,7 @@ static int GetHexaDigit(char ch) {
 /**
  * Convert C style \a, \b, \f, \n, \r, \t, \v, \ooo and \xhh into their indicated characters.
  */
-unsigned int UnSlash(char *s) {
+unsigned int UnSlash(char *s) noexcept {
 	const char *sStart = s;
 	char *o = s;
 
@@ -321,7 +325,7 @@ std::string UnSlashString(const char *s) {
  * Convert C style \0oo into their indicated characters.
  * This is used to get control characters into the regular expresion engine.
  */
-static unsigned int UnSlashLowOctal(char *s) {
+static unsigned int UnSlashLowOctal(char *s) noexcept {
 	const char *sStart = s;
 	char *o = s;
 	while (*s) {

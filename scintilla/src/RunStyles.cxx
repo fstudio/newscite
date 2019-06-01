@@ -13,6 +13,7 @@
 #include <climits>
 
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 #include <algorithm>
 #include <memory>
@@ -78,8 +79,8 @@ void RunStyles<DISTANCE, STYLE>::RemoveRunIfSameAsPrevious(DISTANCE run) {
 
 template <typename DISTANCE, typename STYLE>
 RunStyles<DISTANCE, STYLE>::RunStyles() {
-	starts.reset(new Partitioning<DISTANCE>(8));
-	styles.reset(new SplitVector<STYLE>());
+	starts = std::make_unique<Partitioning<DISTANCE>>(8);
+	styles = std::make_unique<SplitVector<STYLE>>();
 	styles->InsertValue(0, 2, 0);
 }
 
@@ -215,8 +216,8 @@ void RunStyles<DISTANCE, STYLE>::InsertSpace(DISTANCE position, DISTANCE insertL
 
 template <typename DISTANCE, typename STYLE>
 void RunStyles<DISTANCE, STYLE>::DeleteAll() {
-	starts.reset(new Partitioning<DISTANCE>(8));
-	styles.reset(new SplitVector<STYLE>());
+	starts = std::make_unique<Partitioning<DISTANCE>>(8);
+	styles = std::make_unique<SplitVector<STYLE>>();
 	styles->InsertValue(0, 2, 0);
 }
 

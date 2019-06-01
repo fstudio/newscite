@@ -8,7 +8,7 @@
 bool StartsWith(std::wstring_view s, std::wstring_view start);
 bool StartsWith(std::string_view s, std::string_view start);
 bool EndsWith(std::wstring_view s, std::wstring_view end);
-bool Contains(std::string const &s, char ch);
+bool Contains(std::string const &s, char ch) noexcept;
 
 // Substitute is duplicated instead of templated as it was ambiguous when implemented as a template.
 int Substitute(std::wstring &s, const std::wstring &sFind, const std::wstring &sReplace);
@@ -29,16 +29,37 @@ std::string StdStringFromDouble(double d, int precision);
 // Does not handle non-ASCII characters.
 void LowerCaseAZ(std::string &s);
 
-inline char MakeUpperCase(char ch) {
+constexpr char MakeUpperCase(char ch) noexcept {
 	if (ch < 'a' || ch > 'z')
 		return ch;
 	else
 		return static_cast<char>(ch - 'a' + 'A');
 }
 
-inline constexpr bool IsASCII(int ch) {
+constexpr bool IsASCII(int ch) noexcept {
 	return (ch >= 0) && (ch < 0x80);
 }
+
+constexpr bool IsASpace(int ch) noexcept {
+	return (ch == ' ') || ((ch >= 0x09) && (ch <= 0x0d));
+}
+
+constexpr bool IsADigit(int ch) noexcept {
+	return (ch >= '0') && (ch <= '9');
+}
+
+constexpr bool IsAlphabetic(int ch) noexcept {
+	return ((ch >= 'A') && (ch <= 'Z')) || ((ch >= 'a') && (ch <= 'z'));
+}
+
+constexpr bool IsAlphaNumeric(int ch) noexcept {
+	return
+		((ch >= '0') && (ch <= '9')) ||
+		((ch >= 'a') && (ch <= 'z')) ||
+		((ch >= 'A') && (ch <= 'Z'));
+}
+
+intptr_t IntegerFromText(const char *s) noexcept;
 
 // StringSplit can be expanded over std::string or GUI::gui_string
 template <typename T>
@@ -64,7 +85,7 @@ inline std::vector<GUI::gui_string> ListFromString(const GUI::gui_string &args) 
 // May truncate if source doesn't fit into dest with room for NUL.
 
 template <typename T, size_t count>
-void StringCopy(T (&dest)[count], const T* source) {
+void StringCopy(T(&dest)[count], const T *source) noexcept {
 	for (size_t i=0; i<count; i++) {
 		dest[i] = source[i];
 		if (!source[i])
@@ -73,17 +94,17 @@ void StringCopy(T (&dest)[count], const T* source) {
 	dest[count-1] = 0;
 }
 
-int CompareNoCase(const char *a, const char *b);
-bool EqualCaseInsensitive(const char *a, const char *b);
-bool isprefix(const char *target, const char *prefix);
+int CompareNoCase(const char *a, const char *b) noexcept;
+bool EqualCaseInsensitive(const char *a, const char *b) noexcept;
+bool isprefix(const char *target, const char *prefix) noexcept;
 
 constexpr const char *UTF8BOM = "\xef\xbb\xbf";
 
 std::u32string UTF32FromUTF8(std::string_view s);
-unsigned int UTF32Character(const char *utf8);
+unsigned int UTF32Character(const char *utf8) noexcept;
 
 std::string Slash(const std::string &s, bool quoteQuotes);
-unsigned int UnSlash(char *s);
+unsigned int UnSlash(char *s) noexcept;
 std::string UnSlashString(const char *s);
 std::string UnSlashLowOctalString(const char *s);
 
@@ -137,7 +158,7 @@ public:
 			start = end + 1;
 		}
 	}
-	int Length() const {
+	int Length() const noexcept {
 		int len = 0;
 		for (int i = 0; i < sz; i++)
 			if (entries[i].length())

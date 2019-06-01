@@ -11,7 +11,7 @@
 namespace Scintilla {
 
 // A simple lexer with no state
-class LexerBase : public ILexerWithMetaData {
+class LexerBase : public ILexer4 {
 protected:
 	const LexicalClass *lexClasses;
 	size_t nClasses;
